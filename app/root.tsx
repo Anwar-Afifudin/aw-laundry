@@ -52,8 +52,10 @@ export function Layout({ children }: { children: ReactNode }) {
 
 export function HydrateFallback() {
   return (
-    <main className="flex min-h-screen items-center justify-center px-6">
-      <p className="text-sm font-medium text-slate-600">Memuat A&amp;W Laundry…</p>
+    <main className="flex min-h-screen items-center justify-center bg-background px-6">
+      <p className="text-sm font-medium text-muted-foreground">
+        Memuat A&amp;W Laundry…
+      </p>
     </main>
   );
 }
@@ -80,8 +82,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
-      <h1 className="text-3xl font-bold text-slate-900">{message}</h1>
-      <p className="mt-3 text-slate-600">{details}</p>
+      <h1 className="text-3xl font-bold text-foreground">{message}</h1>
+      <p className="mt-3 text-muted-foreground">{details}</p>
       {stack && (
         <pre className="mt-6 w-full overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100">
           <code>{stack}</code>

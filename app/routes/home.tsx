@@ -1,17 +1,40 @@
+import { CheckIcon } from "lucide-react";
+
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
+
 export default function Home() {
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-16">
-      <section className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">
-          A&amp;W Laundry
-        </p>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
-          Aplikasi sedang disiapkan
-        </h1>
-        <p className="mt-3 text-base leading-7 text-slate-600">
-          Fondasi React Router sudah siap untuk tahap pengembangan berikutnya.
-        </p>
-      </section>
+    <main className="flex min-h-svh items-center justify-center px-4 py-10 sm:px-6">
+      <div className="w-full max-w-md">
+        <Card className="shadow-sm">
+          <CardHeader className="gap-3">
+            <Badge className="w-fit">A&amp;W Laundry</Badge>
+            <div className="space-y-2">
+              <CardTitle className="text-2xl font-semibold tracking-tight">
+                UI Foundation Ready
+              </CardTitle>
+              <CardDescription className="leading-6">
+                Tailwind CSS, shadcn/ui, dan Lucide React sudah terhubung dan
+                siap digunakan.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" size="lg" className="w-full sm:w-auto">
+              <CheckIcon aria-hidden="true" data-icon="inline-start" />
+              Komponen siap digunakan
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </main>
   );
 }
