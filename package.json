@@ -11,6 +11,7 @@
   "dependencies": {
     "@base-ui/react": "^1.9.0",
     "@react-router/node": "^8.5.1",
+    "@supabase/supabase-js": "^2.118.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.1",
     "isbot": "^5.1.36",
