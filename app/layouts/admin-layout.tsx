@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
 import { cn } from "~/lib/utils";
 
 type AdminNavItem = {
@@ -150,7 +151,7 @@ function AdminProfile() {
   );
 }
 
-export default function AdminLayout() {
+function AdminApplicationLayout() {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const { pathname } = useLocation();
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
@@ -226,5 +227,13 @@ export default function AdminLayout() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function AdminLayout() {
+  return (
+    <AuthorizationGuard requiredRole="ADMIN">
+      <AdminApplicationLayout />
+    </AuthorizationGuard>
   );
 }

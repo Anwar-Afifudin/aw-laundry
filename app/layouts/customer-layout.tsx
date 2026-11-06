@@ -9,6 +9,7 @@ import {
 import { NavLink, Outlet } from "react-router";
 
 import { BrandLogo } from "~/components/shared/brand-logo";
+import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
 import { cn } from "~/lib/utils";
 
 type CustomerNavigationItem = {
@@ -126,7 +127,7 @@ function MobileNavigation() {
   );
 }
 
-export default function CustomerLayout() {
+function CustomerApplicationLayout() {
   return (
     <div className="min-h-svh bg-slate-50">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -167,5 +168,13 @@ export default function CustomerLayout() {
 
       <MobileNavigation />
     </div>
+  );
+}
+
+export default function CustomerLayout() {
+  return (
+    <AuthorizationGuard requiredRole="CUSTOMER">
+      <CustomerApplicationLayout />
+    </AuthorizationGuard>
   );
 }
