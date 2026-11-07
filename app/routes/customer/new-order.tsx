@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
 import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
+import {
+  ArrowLeftIcon,
   ArrowRightIcon,
+  CheckIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
   Clock3Icon,
@@ -25,7 +33,10 @@ import {
   CardHeader,
   CardTitle,
 } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Textarea } from "~/components/ui/textarea";
 import { getActiveServices } from "~/features/services/queries/get-active-services";
 import type {
   ActiveService,
@@ -38,9 +49,60 @@ type ServicesState =
   | { status: "ready"; services: ActiveService[] }
   | { status: "error" };
 
+type OrderStep = 1 | 2;
+type QuantityPriceType = Extract<ServicePriceType, "PER_KG" | "PER_ITEM">;
+type QuantityService = ActiveService & { price_type: QuantityPriceType };
+
+type QuantityFieldConfig = {
+  label: string;
+  unit: "kg" | "item";
+  min: number;
+  step: number;
+  inputMode: "decimal" | "numeric";
+  placeholder: string;
+  helpText: string;
+};
+
+type QuantityValidation = {
+  value: number | null;
+  error: string | null;
+};
+
+const orderSteps = [
+  { number: 1, label: "Layanan" },
+  { number: 2, label: "Detail Pesanan" },
+  { number: 3, label: "Pengiriman" },
+  { number: 4, label: "Ringkasan" },
+] as const;
+
+const quantityFieldConfigs: Record<QuantityPriceType, QuantityFieldConfig> = {
+  PER_KG: {
+    label: "Perkiraan berat",
+    unit: "kg",
+    min: 0.1,
+    step: 0.1,
+    inputMode: "decimal",
+    placeholder: "3",
+    helpText: "Gunakan kelipatan 0,1 kg.",
+  },
+  PER_ITEM: {
+    label: "Jumlah item",
+    unit: "item",
+    min: 1,
+    step: 1,
+    inputMode: "numeric",
+    placeholder: "2",
+    helpText: "Masukkan jumlah item dalam bilangan bulat.",
+  },
+};
+
 const rupiahFormatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
   currency: "IDR",
+});
+
+const quantityFormatter = new Intl.NumberFormat("id-ID", {
+  maximumFractionDigits: 1,
 });
 
 const priceUnitLabels: Record<ServicePriceType, string> = {
@@ -56,6 +118,139 @@ function formatPrice(price: number) {
 
 function formatDuration(hours: number) {
   return `± ${hours} jam`;
+}
+
+function supportsOrderDetails(
+  service: ActiveService,
+): service is QuantityService {
+  return service.price_type === "PER_KG" || service.price_type === "PER_ITEM";
+}
+
+function validateEstimatedQuantity(
+  rawQuantity: string,
+  priceType: QuantityPriceType,
+): QuantityValidation {
+  const fieldLabel =
+    priceType === "PER_KG" ? "Perkiraan berat" : "Jumlah item";
+  const trimmedQuantity = rawQuantity.trim();
+
+  if (!trimmedQuantity) {
+    return {
+      value: null,
+      error: `${fieldLabel} wajib diisi.`,
+    };
+  }
+
+  const quantity = Number(trimmedQuantity);
+
+  if (!Number.isFinite(quantity)) {
+    return {
+      value: null,
+      error: `${fieldLabel} harus berupa angka yang valid.`,
+    };
+  }
+
+  if (priceType === "PER_ITEM") {
+    if (quantity < 1) {
+      return {
+        value: null,
+        error: "Jumlah item minimal 1.",
+      };
+    }
+
+    if (!Number.isSafeInteger(quantity)) {
+      return {
+        value: null,
+        error: "Jumlah item harus berupa bilangan bulat.",
+      };
+    }
+
+    return { value: quantity, error: null };
+  }
+
+  if (quantity <= 0) {
+    return {
+      value: null,
+      error: "Perkiraan berat harus lebih dari 0 kg.",
+    };
+  }
+
+  const quantityInTenths = quantity * 10;
+
+  if (Math.abs(quantityInTenths - Math.round(quantityInTenths)) > 1e-9) {
+    return {
+      value: null,
+      error: "Perkiraan berat harus menggunakan kelipatan 0,1 kg.",
+    };
+  }
+
+  return { value: quantity, error: null };
+}
+
+function formatQuantity(quantity: number, unit: "kg" | "item") {
+  return `${quantityFormatter.format(quantity)} ${unit}`;
+}
+
+function OrderStepIndicator({ currentStep }: { currentStep: OrderStep }) {
+  return (
+    <nav
+      aria-label="Tahapan pembuatan pesanan"
+      className="rounded-xl bg-white px-2 py-4 shadow-sm ring-1 ring-slate-200 sm:px-5"
+    >
+      <ol className="flex items-start">
+        {orderSteps.map((step, index) => {
+          const isActive = step.number === currentStep;
+          const isComplete = step.number < currentStep;
+          const isDisabled = step.number > 2;
+
+          return (
+            <li
+              key={step.number}
+              aria-current={isActive ? "step" : undefined}
+              aria-disabled={isDisabled || undefined}
+              className="relative flex min-w-0 flex-1 flex-col items-center px-1 text-center"
+            >
+              {index < orderSteps.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute top-4 left-[calc(50%+1rem)] h-0.5 w-[calc(100%-2rem)]",
+                    isComplete ? "bg-blue-600" : "bg-slate-200",
+                  )}
+                />
+              )}
+              <span
+                className={cn(
+                  "relative z-10 flex size-8 items-center justify-center rounded-full border text-xs font-bold",
+                  isActive && "border-blue-600 bg-blue-600 text-white",
+                  isComplete && "border-blue-600 bg-blue-50 text-blue-700",
+                  !isActive &&
+                    !isComplete &&
+                    "border-slate-200 bg-slate-100 text-slate-500",
+                )}
+              >
+                {isComplete ? (
+                  <CheckIcon aria-hidden="true" className="size-4" />
+                ) : (
+                  step.number
+                )}
+              </span>
+              <span
+                className={cn(
+                  "mt-2 text-[0.6875rem] leading-4 font-medium sm:text-xs",
+                  isActive || isComplete
+                    ? "text-slate-900"
+                    : "text-slate-500",
+                )}
+              >
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
 }
 
 function ServiceVisual({ service }: { service: ActiveService }) {
@@ -231,11 +426,9 @@ function ServicesErrorState({ onRetry }: { onRetry: () => void }) {
 
 function SelectionSummary({
   service,
-  showNextStepMessage,
   onContinue,
 }: {
   service: ActiveService | null;
-  showNextStepMessage: boolean;
   onContinue: () => void;
 }) {
   return (
@@ -296,28 +489,309 @@ function SelectionSummary({
             type="button"
             size="lg"
             className="h-11 w-full"
-            disabled={!service}
+            disabled={!service || !supportsOrderDetails(service)}
             onClick={onContinue}
           >
             Lanjutkan
             <ArrowRightIcon aria-hidden="true" />
           </Button>
+        </CardContent>
+      </Card>
+    </aside>
+  );
+}
 
-          {showNextStepMessage && service && (
+function OrderDetailsSummary({
+  service,
+  quantity,
+  estimatedSubtotal,
+}: {
+  service: QuantityService;
+  quantity: number | null;
+  estimatedSubtotal: number | null;
+}) {
+  const quantityConfig = quantityFieldConfigs[service.price_type];
+
+  return (
+    <aside aria-label="Ringkasan detail pesanan" className="lg:sticky lg:top-24">
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold">
+            Ringkasan pesanan
+          </CardTitle>
+          <CardDescription>
+            Estimasi diperbarui dari detail yang Anda isi.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 px-4">
+            <div className="py-3">
+              <dt className="text-xs font-medium text-slate-500">Layanan</dt>
+              <dd className="mt-1 font-semibold text-slate-900">
+                {service.name}
+              </dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-xs font-medium text-slate-500">Harga</dt>
+              <dd className="mt-1 font-semibold text-slate-900">
+                {formatPrice(service.price)}{" "}
+                <span className="text-sm font-medium text-slate-500">
+                  {priceUnitLabels[service.price_type]}
+                </span>
+              </dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-xs font-medium text-slate-500">
+                Perkiraan
+              </dt>
+              <dd className="mt-1 font-semibold text-slate-900">
+                {quantity === null
+                  ? "-"
+                  : formatQuantity(quantity, quantityConfig.unit)}
+              </dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-xs font-medium text-slate-500">
+                Estimasi subtotal
+              </dt>
+              <dd className="mt-1 text-lg font-bold text-blue-700">
+                {estimatedSubtotal === null
+                  ? "-"
+                  : formatPrice(estimatedSubtotal)}
+              </dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-xs font-medium text-slate-500">
+                Estimasi durasi
+              </dt>
+              <dd className="mt-1 flex items-center gap-1.5 font-semibold text-slate-900">
+                <Clock3Icon
+                  aria-hidden="true"
+                  className="size-4 text-blue-600"
+                />
+                {formatDuration(service.estimated_duration_hours)}
+              </dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
+    </aside>
+  );
+}
+
+function OrderDetailsStep({
+  service,
+  estimatedQuantity,
+  notes,
+  headingRef,
+  onEstimatedQuantityChange,
+  onNotesChange,
+  onBack,
+}: {
+  service: QuantityService;
+  estimatedQuantity: string;
+  notes: string;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  onEstimatedQuantityChange: (quantity: string) => void;
+  onNotesChange: (notes: string) => void;
+  onBack: () => void;
+}) {
+  const [quantityTouched, setQuantityTouched] = useState(false);
+  const [showCompletionMessage, setShowCompletionMessage] = useState(false);
+  const quantityConfig = quantityFieldConfigs[service.price_type];
+  const quantityValidation = validateEstimatedQuantity(
+    estimatedQuantity,
+    service.price_type,
+  );
+  const notesError =
+    notes.length > 500 ? "Catatan laundry maksimal 500 karakter." : null;
+  const showQuantityError =
+    quantityValidation.error !== null &&
+    (quantityTouched || estimatedQuantity !== "");
+  const calculatedSubtotal =
+    quantityValidation.value === null
+      ? null
+      : service.price * quantityValidation.value;
+  const estimatedSubtotal =
+    calculatedSubtotal !== null && Number.isFinite(calculatedSubtotal)
+      ? calculatedSubtotal
+      : null;
+  const isFormValid =
+    quantityValidation.value !== null &&
+    estimatedSubtotal !== null &&
+    notesError === null;
+  const quantityHelpId = "estimated-quantity-help";
+  const quantityErrorId = "estimated-quantity-error";
+  const notesHelpId = "laundry-notes-help";
+  const notesErrorId = "laundry-notes-error";
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setQuantityTouched(true);
+
+    if (!isFormValid) {
+      setShowCompletionMessage(false);
+      return;
+    }
+
+    setShowCompletionMessage(true);
+  }
+
+  return (
+    <form
+      noValidate
+      className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start"
+      onSubmit={handleSubmit}
+    >
+      <Card className="shadow-sm">
+        <CardHeader className="border-b border-slate-100 pb-4">
+          <h2
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-heading text-lg font-semibold text-slate-900 focus:outline-none"
+          >
+            Detail pesanan
+          </h2>
+          <CardDescription>
+            Lengkapi perkiraan untuk layanan {service.name}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div>
+            <Label htmlFor="estimated-quantity">
+              {quantityConfig.label}
+              <span aria-hidden="true" className="text-red-600">
+                *
+              </span>
+            </Label>
+            <div className="relative mt-2">
+              <Input
+                id="estimated-quantity"
+                type="number"
+                min={quantityConfig.min}
+                step={quantityConfig.step}
+                inputMode={quantityConfig.inputMode}
+                placeholder={quantityConfig.placeholder}
+                value={estimatedQuantity}
+                required
+                aria-invalid={showQuantityError || undefined}
+                aria-describedby={`${quantityHelpId}${
+                  showQuantityError ? ` ${quantityErrorId}` : ""
+                }`}
+                className="h-11 pr-14"
+                onChange={(event) => {
+                  onEstimatedQuantityChange(event.target.value);
+                  setShowCompletionMessage(false);
+                }}
+                onBlur={() => setQuantityTouched(true)}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500"
+              >
+                {quantityConfig.unit}
+              </span>
+            </div>
+            <p id={quantityHelpId} className="mt-2 text-xs text-slate-500">
+              {quantityConfig.helpText}
+            </p>
+            {showQuantityError && (
+              <p
+                id={quantityErrorId}
+                role="alert"
+                className="mt-2 text-sm font-medium text-red-600"
+              >
+                {quantityValidation.error}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="laundry-notes">
+              Catatan laundry
+              <span className="font-normal text-slate-500">(Opsional)</span>
+            </Label>
+            <Textarea
+              id="laundry-notes"
+              value={notes}
+              maxLength={500}
+              rows={5}
+              placeholder="Contoh: Pisahkan pakaian berwarna."
+              aria-invalid={notesError !== null || undefined}
+              aria-describedby={`${notesHelpId}${
+                notesError ? ` ${notesErrorId}` : ""
+              }`}
+              className="mt-2 min-h-28 resize-y"
+              onChange={(event) => {
+                onNotesChange(event.target.value);
+                setShowCompletionMessage(false);
+              }}
+            />
+            <p
+              id={notesHelpId}
+              className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500"
+            >
+              <span>Maksimal 500 karakter.</span>
+              <span>{notes.length}/500 karakter</span>
+            </p>
+            {notesError && (
+              <p
+                id={notesErrorId}
+                role="alert"
+                className="mt-2 text-sm font-medium text-red-600"
+              >
+                {notesError}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-11 w-full"
+              onClick={() => {
+                setShowCompletionMessage(false);
+                onBack();
+              }}
+            >
+              <ArrowLeftIcon aria-hidden="true" />
+              Kembali
+            </Button>
+            <Button
+              type="submit"
+              size="lg"
+              className="h-11 w-full"
+              disabled={!isFormValid}
+            >
+              Lanjutkan
+              <ArrowRightIcon aria-hidden="true" />
+            </Button>
+          </div>
+
+          {showCompletionMessage && (
             <Alert
               role="status"
               className="border-blue-200 bg-blue-50 text-blue-900"
             >
               <InfoIcon aria-hidden="true" />
-              <AlertTitle>Langkah berikutnya</AlertTitle>
+              <AlertTitle>Detail pesanan lengkap</AlertTitle>
               <AlertDescription className="text-blue-800">
-                Detail pesanan akan dilengkapi pada tahap berikutnya.
+                Tahap detail pesanan sudah lengkap. Pengaturan pengambilan dan
+                pengantaran akan dilanjutkan pada tahap berikutnya.
               </AlertDescription>
             </Alert>
           )}
         </CardContent>
       </Card>
-    </aside>
+
+      <OrderDetailsSummary
+        service={service}
+        quantity={quantityValidation.value}
+        estimatedSubtotal={estimatedSubtotal}
+      />
+    </form>
   );
 }
 
@@ -330,17 +804,22 @@ export default function NewOrderPage() {
     status: "loading",
   });
   const [retryKey, setRetryKey] = useState(0);
+  const [currentStep, setCurrentStep] = useState<OrderStep>(1);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(
     null,
   );
-  const [showNextStepMessage, setShowNextStepMessage] = useState(false);
+  const [estimatedQuantity, setEstimatedQuantity] = useState("");
+  const [notes, setNotes] = useState("");
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     let isActive = true;
 
     setServicesState({ status: "loading" });
+    setCurrentStep(1);
     setSelectedServiceId(null);
-    setShowNextStepMessage(false);
+    setEstimatedQuantity("");
+    setNotes("");
 
     void getActiveServices()
       .then((services) => {
@@ -359,14 +838,26 @@ export default function NewOrderPage() {
     };
   }, [retryKey]);
 
+  useEffect(() => {
+    stepHeadingRef.current?.focus();
+  }, [currentStep]);
+
   const services =
     servicesState.status === "ready" ? servicesState.services : [];
   const selectedService =
     services.find((service) => service.id === selectedServiceId) ?? null;
+  const detailsService =
+    selectedService && supportsOrderDetails(selectedService)
+      ? selectedService
+      : null;
 
   function handleServiceSelection(serviceId: string) {
+    if (serviceId !== selectedServiceId) {
+      setEstimatedQuantity("");
+      setNotes("");
+    }
+
     setSelectedServiceId(serviceId);
-    setShowNextStepMessage(false);
   }
 
   return (
@@ -374,8 +865,14 @@ export default function NewOrderPage() {
       <PageHeader
         eyebrow="Aplikasi pelanggan"
         title="Buat Pesanan"
-        description="Pilih satu layanan laundry yang paling sesuai dengan kebutuhan Anda."
+        description={
+          currentStep === 1
+            ? "Pilih satu layanan laundry yang paling sesuai dengan kebutuhan Anda."
+            : "Lengkapi perkiraan jumlah laundry sebelum melanjutkan ke tahap pengiriman."
+        }
       />
+
+      <OrderStepIndicator currentStep={currentStep} />
 
       {servicesState.status === "loading" && <ServiceSelectionSkeleton />}
 
@@ -393,13 +890,17 @@ export default function NewOrderPage() {
         />
       )}
 
-      {servicesState.status === "ready" && services.length > 0 && (
+      {servicesState.status === "ready" &&
+        services.length > 0 &&
+        currentStep === 1 && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <section aria-labelledby="service-list-title">
             <div className="mb-4">
               <h2
+                ref={stepHeadingRef}
                 id="service-list-title"
-                className="font-heading text-lg font-semibold text-slate-900"
+                tabIndex={-1}
+                className="font-heading text-lg font-semibold text-slate-900 focus:outline-none"
               >
                 Pilih layanan
               </h2>
@@ -425,15 +926,28 @@ export default function NewOrderPage() {
 
           <SelectionSummary
             service={selectedService}
-            showNextStepMessage={showNextStepMessage}
             onContinue={() => {
-              if (selectedService) {
-                setShowNextStepMessage(true);
+              if (detailsService) {
+                setCurrentStep(2);
               }
             }}
           />
         </div>
       )}
+
+      {servicesState.status === "ready" &&
+        currentStep === 2 &&
+        detailsService && (
+          <OrderDetailsStep
+            service={detailsService}
+            estimatedQuantity={estimatedQuantity}
+            notes={notes}
+            headingRef={stepHeadingRef}
+            onEstimatedQuantityChange={setEstimatedQuantity}
+            onNotesChange={setNotes}
+            onBack={() => setCurrentStep(1)}
+          />
+        )}
     </div>
   );
 }
