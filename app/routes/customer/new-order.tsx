@@ -12,7 +12,6 @@ import {
   CheckCircle2Icon,
   CircleAlertIcon,
   Clock3Icon,
-  InfoIcon,
   PackageOpenIcon,
   RefreshCwIcon,
   WashingMachineIcon,
@@ -20,11 +19,6 @@ import {
 
 import { PageHeader } from "~/components/shared/page-header";
 import { PlaceholderCard } from "~/components/shared/placeholder-card";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import {
   Card,
@@ -37,6 +31,18 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Textarea } from "~/components/ui/textarea";
+import { getCurrentCustomerAddresses } from "~/features/addresses/queries/get-current-customer-addresses";
+import type {
+  CustomerAddress,
+  CustomerAddressesState,
+} from "~/features/addresses/types";
+import {
+  OrderReviewPlaceholder,
+  OrderShippingStep,
+  type OrderDraftSummary,
+  type OrderIntakeMethod,
+  type OrderReturnMethod,
+} from "~/features/orders/components/order-shipping-step";
 import { getActiveServices } from "~/features/services/queries/get-active-services";
 import type {
   ActiveService,
@@ -49,7 +55,7 @@ type ServicesState =
   | { status: "ready"; services: ActiveService[] }
   | { status: "error" };
 
-type OrderStep = 1 | 2;
+type OrderStep = 1 | 2 | 3 | 4;
 type QuantityPriceType = Extract<ServicePriceType, "PER_KG" | "PER_ITEM">;
 type QuantityService = ActiveService & { price_type: QuantityPriceType };
 
@@ -74,6 +80,13 @@ const orderSteps = [
   { number: 3, label: "Pengiriman" },
   { number: 4, label: "Ringkasan" },
 ] as const;
+
+const stepDescriptions: Record<OrderStep, string> = {
+  1: "Pilih satu layanan laundry yang paling sesuai dengan kebutuhan Anda.",
+  2: "Lengkapi perkiraan jumlah laundry sebelum melanjutkan ke tahap pengiriman.",
+  3: "Tentukan cara laundry diterima dan dikembalikan setelah selesai.",
+  4: "Tinjau ringkasan sementara sebelum tahap pembuatan pesanan tersedia.",
+};
 
 const quantityFieldConfigs: Record<QuantityPriceType, QuantityFieldConfig> = {
   PER_KG: {
@@ -201,13 +214,11 @@ function OrderStepIndicator({ currentStep }: { currentStep: OrderStep }) {
         {orderSteps.map((step, index) => {
           const isActive = step.number === currentStep;
           const isComplete = step.number < currentStep;
-          const isDisabled = step.number > 2;
 
           return (
             <li
               key={step.number}
               aria-current={isActive ? "step" : undefined}
-              aria-disabled={isDisabled || undefined}
               className="relative flex min-w-0 flex-1 flex-col items-center px-1 text-center"
             >
               {index < orderSteps.length - 1 && (
@@ -587,6 +598,7 @@ function OrderDetailsStep({
   onEstimatedQuantityChange,
   onNotesChange,
   onBack,
+  onContinue,
 }: {
   service: QuantityService;
   estimatedQuantity: string;
@@ -595,9 +607,9 @@ function OrderDetailsStep({
   onEstimatedQuantityChange: (quantity: string) => void;
   onNotesChange: (notes: string) => void;
   onBack: () => void;
+  onContinue: () => void;
 }) {
   const [quantityTouched, setQuantityTouched] = useState(false);
-  const [showCompletionMessage, setShowCompletionMessage] = useState(false);
   const quantityConfig = quantityFieldConfigs[service.price_type];
   const quantityValidation = validateEstimatedQuantity(
     estimatedQuantity,
@@ -630,11 +642,10 @@ function OrderDetailsStep({
     setQuantityTouched(true);
 
     if (!isFormValid) {
-      setShowCompletionMessage(false);
       return;
     }
 
-    setShowCompletionMessage(true);
+    onContinue();
   }
 
   return (
@@ -679,10 +690,9 @@ function OrderDetailsStep({
                   showQuantityError ? ` ${quantityErrorId}` : ""
                 }`}
                 className="h-11 pr-14"
-                onChange={(event) => {
-                  onEstimatedQuantityChange(event.target.value);
-                  setShowCompletionMessage(false);
-                }}
+                onChange={(event) =>
+                  onEstimatedQuantityChange(event.target.value)
+                }
                 onBlur={() => setQuantityTouched(true)}
               />
               <span
@@ -722,10 +732,7 @@ function OrderDetailsStep({
                 notesError ? ` ${notesErrorId}` : ""
               }`}
               className="mt-2 min-h-28 resize-y"
-              onChange={(event) => {
-                onNotesChange(event.target.value);
-                setShowCompletionMessage(false);
-              }}
+              onChange={(event) => onNotesChange(event.target.value)}
             />
             <p
               id={notesHelpId}
@@ -751,10 +758,7 @@ function OrderDetailsStep({
               variant="outline"
               size="lg"
               className="h-11 w-full"
-              onClick={() => {
-                setShowCompletionMessage(false);
-                onBack();
-              }}
+              onClick={onBack}
             >
               <ArrowLeftIcon aria-hidden="true" />
               Kembali
@@ -769,20 +773,6 @@ function OrderDetailsStep({
               <ArrowRightIcon aria-hidden="true" />
             </Button>
           </div>
-
-          {showCompletionMessage && (
-            <Alert
-              role="status"
-              className="border-blue-200 bg-blue-50 text-blue-900"
-            >
-              <InfoIcon aria-hidden="true" />
-              <AlertTitle>Detail pesanan lengkap</AlertTitle>
-              <AlertDescription className="text-blue-800">
-                Tahap detail pesanan sudah lengkap. Pengaturan pengambilan dan
-                pengantaran akan dilanjutkan pada tahap berikutnya.
-              </AlertDescription>
-            </Alert>
-          )}
         </CardContent>
       </Card>
 
@@ -804,13 +794,26 @@ export default function NewOrderPage() {
     status: "loading",
   });
   const [retryKey, setRetryKey] = useState(0);
+  const [addressesState, setAddressesState] = useState<CustomerAddressesState>({
+    status: "idle",
+  });
+  const [addressRetryKey, setAddressRetryKey] = useState(0);
   const [currentStep, setCurrentStep] = useState<OrderStep>(1);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(
     null,
   );
   const [estimatedQuantity, setEstimatedQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  const [intakeMethod, setIntakeMethod] =
+    useState<OrderIntakeMethod | null>(null);
+  const [pickupAddressId, setPickupAddressId] = useState<string | null>(null);
+  const [returnMethod, setReturnMethod] =
+    useState<OrderReturnMethod | null>(null);
+  const [deliveryAddressId, setDeliveryAddressId] = useState<string | null>(
+    null,
+  );
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const addressesLoadedRef = useRef(false);
 
   useEffect(() => {
     let isActive = true;
@@ -820,6 +823,12 @@ export default function NewOrderPage() {
     setSelectedServiceId(null);
     setEstimatedQuantity("");
     setNotes("");
+    setIntakeMethod(null);
+    setPickupAddressId(null);
+    setReturnMethod(null);
+    setDeliveryAddressId(null);
+    setAddressesState({ status: "idle" });
+    addressesLoadedRef.current = false;
 
     void getActiveServices()
       .then((services) => {
@@ -839,6 +848,47 @@ export default function NewOrderPage() {
   }, [retryKey]);
 
   useEffect(() => {
+    if (currentStep !== 3 || addressesLoadedRef.current) {
+      return;
+    }
+
+    let isActive = true;
+
+    setAddressesState({ status: "loading" });
+
+    void getCurrentCustomerAddresses()
+      .then((addresses) => {
+        if (!isActive) {
+          return;
+        }
+
+        const addressIds = new Set(addresses.map((address) => address.id));
+
+        setPickupAddressId((currentAddressId) =>
+          currentAddressId && addressIds.has(currentAddressId)
+            ? currentAddressId
+            : null,
+        );
+        setDeliveryAddressId((currentAddressId) =>
+          currentAddressId && addressIds.has(currentAddressId)
+            ? currentAddressId
+            : null,
+        );
+        addressesLoadedRef.current = true;
+        setAddressesState({ status: "ready", addresses });
+      })
+      .catch(() => {
+        if (isActive) {
+          setAddressesState({ status: "error" });
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [addressRetryKey, currentStep]);
+
+  useEffect(() => {
     stepHeadingRef.current?.focus();
   }, [currentStep]);
 
@@ -850,14 +900,116 @@ export default function NewOrderPage() {
     selectedService && supportsOrderDetails(selectedService)
       ? selectedService
       : null;
+  const detailQuantityValidation = detailsService
+    ? validateEstimatedQuantity(estimatedQuantity, detailsService.price_type)
+    : null;
+  const detailQuantity = detailQuantityValidation?.value ?? null;
+  const calculatedDraftSubtotal =
+    detailsService && detailQuantity !== null
+      ? detailsService.price * detailQuantity
+      : null;
+  const draftSubtotal =
+    calculatedDraftSubtotal !== null &&
+    Number.isFinite(calculatedDraftSubtotal)
+      ? calculatedDraftSubtotal
+      : null;
+  const orderDraftSummary: OrderDraftSummary | null =
+    detailsService && detailQuantity !== null && draftSubtotal !== null
+      ? {
+          service: detailsService.name,
+          price: `${formatPrice(detailsService.price)} ${
+            priceUnitLabels[detailsService.price_type]
+          }`,
+          quantity: formatQuantity(
+            detailQuantity,
+            quantityFieldConfigs[detailsService.price_type].unit,
+          ),
+          subtotal: formatPrice(draftSubtotal),
+          duration: formatDuration(detailsService.estimated_duration_hours),
+        }
+      : null;
+  const addresses =
+    addressesState.status === "ready" ? addressesState.addresses : [];
+  const selectedPickupAddress =
+    intakeMethod === "PICKUP"
+      ? (addresses.find((address) => address.id === pickupAddressId) ?? null)
+      : null;
+  const selectedDeliveryAddress =
+    returnMethod === "DELIVERY"
+      ? (addresses.find((address) => address.id === deliveryAddressId) ?? null)
+      : null;
 
   function handleServiceSelection(serviceId: string) {
     if (serviceId !== selectedServiceId) {
       setEstimatedQuantity("");
       setNotes("");
+      setIntakeMethod(null);
+      setPickupAddressId(null);
+      setReturnMethod(null);
+      setDeliveryAddressId(null);
+      setAddressesState({ status: "idle" });
+      addressesLoadedRef.current = false;
     }
 
     setSelectedServiceId(serviceId);
+  }
+
+  function handleIntakeMethodChange(method: OrderIntakeMethod) {
+    setIntakeMethod(method);
+
+    if (method === "DROPOFF") {
+      setPickupAddressId(null);
+    }
+  }
+
+  function handleReturnMethodChange(method: OrderReturnMethod) {
+    setReturnMethod(method);
+
+    if (method === "CUSTOMER_PICKUP") {
+      setDeliveryAddressId(null);
+    }
+  }
+
+  function handleRetryAddresses() {
+    addressesLoadedRef.current = false;
+    setAddressRetryKey((currentKey) => currentKey + 1);
+  }
+
+  async function handleAddressCreated(address: CustomerAddress) {
+    const includeCreatedAddress = (currentAddresses: CustomerAddress[]) => [
+      address,
+      ...currentAddresses.filter(
+        (currentAddress) => currentAddress.id !== address.id,
+      ),
+    ];
+
+    addressesLoadedRef.current = true;
+    setAddressesState((currentState) => ({
+      status: "ready",
+      addresses: includeCreatedAddress(
+        currentState.status === "ready" ? currentState.addresses : [],
+      ),
+    }));
+
+    setPickupAddressId(address.id);
+    setDeliveryAddressId(address.id);
+
+    try {
+      const refreshedAddresses = await getCurrentCustomerAddresses();
+      const includesCreatedAddress = refreshedAddresses.some(
+        (currentAddress) => currentAddress.id === address.id,
+      );
+
+      setAddressesState({
+        status: "ready",
+        addresses: includesCreatedAddress
+          ? refreshedAddresses
+          : includeCreatedAddress(refreshedAddresses),
+      });
+    } catch {
+      // Keep the successfully inserted address available in local state when
+      // the follow-up refresh is interrupted.
+    }
   }
 
   return (
@@ -865,11 +1017,7 @@ export default function NewOrderPage() {
       <PageHeader
         eyebrow="Aplikasi pelanggan"
         title="Buat Pesanan"
-        description={
-          currentStep === 1
-            ? "Pilih satu layanan laundry yang paling sesuai dengan kebutuhan Anda."
-            : "Lengkapi perkiraan jumlah laundry sebelum melanjutkan ke tahap pengiriman."
-        }
+        description={stepDescriptions[currentStep]}
       />
 
       <OrderStepIndicator currentStep={currentStep} />
@@ -946,6 +1094,45 @@ export default function NewOrderPage() {
             onEstimatedQuantityChange={setEstimatedQuantity}
             onNotesChange={setNotes}
             onBack={() => setCurrentStep(1)}
+            onContinue={() => setCurrentStep(3)}
+          />
+        )}
+
+      {servicesState.status === "ready" &&
+        currentStep === 3 &&
+        orderDraftSummary && (
+          <OrderShippingStep
+            headingRef={stepHeadingRef}
+            summary={orderDraftSummary}
+            addressesState={addressesState}
+            intakeMethod={intakeMethod}
+            pickupAddressId={pickupAddressId}
+            returnMethod={returnMethod}
+            deliveryAddressId={deliveryAddressId}
+            onIntakeMethodChange={handleIntakeMethodChange}
+            onPickupAddressChange={setPickupAddressId}
+            onReturnMethodChange={handleReturnMethodChange}
+            onDeliveryAddressChange={setDeliveryAddressId}
+            onRetryAddresses={handleRetryAddresses}
+            onAddressCreated={handleAddressCreated}
+            onBack={() => setCurrentStep(2)}
+            onContinue={() => setCurrentStep(4)}
+          />
+        )}
+
+      {servicesState.status === "ready" &&
+        currentStep === 4 &&
+        orderDraftSummary &&
+        intakeMethod &&
+        returnMethod && (
+          <OrderReviewPlaceholder
+            headingRef={stepHeadingRef}
+            summary={orderDraftSummary}
+            intakeMethod={intakeMethod}
+            returnMethod={returnMethod}
+            pickupAddress={selectedPickupAddress}
+            deliveryAddress={selectedDeliveryAddress}
+            onBack={() => setCurrentStep(3)}
           />
         )}
     </div>
