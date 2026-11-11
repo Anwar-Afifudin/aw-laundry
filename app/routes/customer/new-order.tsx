@@ -16,6 +16,7 @@ import {
   RefreshCwIcon,
   WashingMachineIcon,
 } from "lucide-react";
+import { useNavigate } from "react-router";
 
 import { PageHeader } from "~/components/shared/page-header";
 import { PlaceholderCard } from "~/components/shared/placeholder-card";
@@ -37,12 +38,20 @@ import type {
   CustomerAddressesState,
 } from "~/features/addresses/types";
 import {
-  OrderReviewPlaceholder,
-  OrderShippingStep,
-  type OrderDraftSummary,
-  type OrderIntakeMethod,
-  type OrderReturnMethod,
-} from "~/features/orders/components/order-shipping-step";
+  OrderCreationSuccess,
+  OrderReviewStep,
+} from "~/features/orders/components/order-review-step";
+import { OrderShippingStep } from "~/features/orders/components/order-shipping-step";
+import {
+  CreateCustomerOrderError,
+  createCurrentCustomerOrder,
+} from "~/features/orders/mutations/create-current-customer-order";
+import type {
+  CreatedCustomerOrder,
+  OrderDraftSummary,
+  OrderIntakeMethod,
+  OrderReturnMethod,
+} from "~/features/orders/types";
 import { getActiveServices } from "~/features/services/queries/get-active-services";
 import type {
   ActiveService,
@@ -54,6 +63,11 @@ type ServicesState =
   | { status: "loading" }
   | { status: "ready"; services: ActiveService[] }
   | { status: "error" };
+
+type OrderSubmissionState =
+  | { status: "idle" }
+  | { status: "submitting" }
+  | { status: "error"; title: string; message: string };
 
 type OrderStep = 1 | 2 | 3 | 4;
 type QuantityPriceType = Extract<ServicePriceType, "PER_KG" | "PER_ITEM">;
@@ -85,7 +99,7 @@ const stepDescriptions: Record<OrderStep, string> = {
   1: "Pilih satu layanan laundry yang paling sesuai dengan kebutuhan Anda.",
   2: "Lengkapi perkiraan jumlah laundry sebelum melanjutkan ke tahap pengiriman.",
   3: "Tentukan cara laundry diterima dan dikembalikan setelah selesai.",
-  4: "Tinjau ringkasan sementara sebelum tahap pembuatan pesanan tersedia.",
+  4: "Periksa kembali seluruh detail sebelum membuat pesanan.",
 };
 
 const quantityFieldConfigs: Record<QuantityPriceType, QuantityFieldConfig> = {
@@ -202,6 +216,28 @@ function validateEstimatedQuantity(
 
 function formatQuantity(quantity: number, unit: "kg" | "item") {
   return `${quantityFormatter.format(quantity)} ${unit}`;
+}
+
+function getOrderSubmissionError(error: unknown) {
+  if (error instanceof CreateCustomerOrderError) {
+    const errorTitles = {
+      authentication: "Sesi perlu diperbarui",
+      authorization: "Pesanan tidak dapat dibuat",
+      validation: "Periksa kembali pesanan",
+      service: "Layanan tidak tersedia",
+      server: "Pesanan belum berhasil dibuat",
+    } satisfies Record<typeof error.kind, string>;
+
+    return {
+      title: errorTitles[error.kind],
+      message: error.message,
+    };
+  }
+
+  return {
+    title: "Pesanan belum berhasil dibuat",
+    message: "Terjadi gangguan saat menyimpan pesanan. Silakan coba lagi.",
+  };
 }
 
 function OrderStepIndicator({ currentStep }: { currentStep: OrderStep }) {
@@ -790,6 +826,7 @@ export function meta() {
 }
 
 export default function NewOrderPage() {
+  const navigate = useNavigate();
   const [servicesState, setServicesState] = useState<ServicesState>({
     status: "loading",
   });
@@ -812,8 +849,14 @@ export default function NewOrderPage() {
   const [deliveryAddressId, setDeliveryAddressId] = useState<string | null>(
     null,
   );
+  const [orderSubmissionState, setOrderSubmissionState] =
+    useState<OrderSubmissionState>({ status: "idle" });
+  const [createdOrder, setCreatedOrder] =
+    useState<CreatedCustomerOrder | null>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const addressesLoadedRef = useRef(false);
+  const orderSubmissionLockRef = useRef(false);
+  const orderRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -828,7 +871,11 @@ export default function NewOrderPage() {
     setReturnMethod(null);
     setDeliveryAddressId(null);
     setAddressesState({ status: "idle" });
+    setOrderSubmissionState({ status: "idle" });
+    setCreatedOrder(null);
     addressesLoadedRef.current = false;
+    orderSubmissionLockRef.current = false;
+    orderRequestIdRef.current = null;
 
     void getActiveServices()
       .then((services) => {
@@ -890,7 +937,7 @@ export default function NewOrderPage() {
 
   useEffect(() => {
     stepHeadingRef.current?.focus();
-  }, [currentStep]);
+  }, [createdOrder, currentStep]);
 
   const services =
     servicesState.status === "ready" ? servicesState.services : [];
@@ -1012,6 +1059,133 @@ export default function NewOrderPage() {
     }
   }
 
+  async function handleCreateOrder() {
+    if (orderSubmissionLockRef.current) {
+      return;
+    }
+
+    if (!detailsService) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Layanan yang dipilih tidak lagi tersedia pada pesanan ini.",
+      });
+      return;
+    }
+
+    const quantityValidation = validateEstimatedQuantity(
+      estimatedQuantity,
+      detailsService.price_type,
+    );
+    const quantity = quantityValidation.value;
+    const calculatedSubtotal =
+      quantity === null ? null : detailsService.price * quantity;
+
+    if (
+      quantity === null ||
+      calculatedSubtotal === null ||
+      !Number.isFinite(calculatedSubtotal) ||
+      calculatedSubtotal < 0
+    ) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message:
+          quantityValidation.error ??
+          "Perkiraan jumlah laundry belum dapat dihitung.",
+      });
+      return;
+    }
+
+    if (notes.length > 500) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Catatan laundry maksimal 500 karakter.",
+      });
+      return;
+    }
+
+    if (!intakeMethod || !returnMethod) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Metode pengambilan dan pengembalian wajib dipilih.",
+      });
+      return;
+    }
+
+    if (intakeMethod === "PICKUP" && !selectedPickupAddress) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Pilih alamat pengambilan sebelum membuat pesanan.",
+      });
+      return;
+    }
+
+    if (returnMethod === "DELIVERY" && !selectedDeliveryAddress) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Pilih alamat pengantaran sebelum membuat pesanan.",
+      });
+      return;
+    }
+
+    try {
+      orderRequestIdRef.current ??= globalThis.crypto.randomUUID();
+    } catch {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Pesanan belum berhasil dibuat",
+        message:
+          "Perangkat belum dapat menyiapkan pesanan dengan aman. Muat ulang halaman lalu coba lagi.",
+      });
+      return;
+    }
+
+    orderSubmissionLockRef.current = true;
+    setOrderSubmissionState({ status: "submitting" });
+
+    try {
+      const order = await createCurrentCustomerOrder({
+        orderId: orderRequestIdRef.current,
+        serviceId: detailsService.id,
+        estimatedQuantity: quantity,
+        specialInstructions: notes.trim() || null,
+        intakeMethod,
+        returnMethod,
+        pickupAddressId:
+          intakeMethod === "PICKUP" ? selectedPickupAddress?.id ?? null : null,
+        deliveryAddressId:
+          returnMethod === "DELIVERY"
+            ? selectedDeliveryAddress?.id ?? null
+            : null,
+      });
+
+      setCreatedOrder(order);
+      setOrderSubmissionState({ status: "idle" });
+    } catch (error) {
+      orderSubmissionLockRef.current = false;
+      setOrderSubmissionState({
+        status: "error",
+        ...getOrderSubmissionError(error),
+      });
+    }
+  }
+
+  if (createdOrder) {
+    return (
+      <OrderCreationSuccess
+        order={createdOrder}
+        headingRef={stepHeadingRef}
+        onViewOrders={() => void navigate("/app/orders", { replace: true })}
+        onBackHome={() => void navigate("/app", { replace: true })}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1116,7 +1290,10 @@ export default function NewOrderPage() {
             onRetryAddresses={handleRetryAddresses}
             onAddressCreated={handleAddressCreated}
             onBack={() => setCurrentStep(2)}
-            onContinue={() => setCurrentStep(4)}
+            onContinue={() => {
+              setOrderSubmissionState({ status: "idle" });
+              setCurrentStep(4);
+            }}
           />
         )}
 
@@ -1125,14 +1302,28 @@ export default function NewOrderPage() {
         orderDraftSummary &&
         intakeMethod &&
         returnMethod && (
-          <OrderReviewPlaceholder
+          <OrderReviewStep
             headingRef={stepHeadingRef}
             summary={orderDraftSummary}
+            notes={notes}
             intakeMethod={intakeMethod}
             returnMethod={returnMethod}
             pickupAddress={selectedPickupAddress}
             deliveryAddress={selectedDeliveryAddress}
-            onBack={() => setCurrentStep(3)}
+            isSubmitting={orderSubmissionState.status === "submitting"}
+            error={
+              orderSubmissionState.status === "error"
+                ? {
+                    title: orderSubmissionState.title,
+                    message: orderSubmissionState.message,
+                  }
+                : null
+            }
+            onBack={() => {
+              setOrderSubmissionState({ status: "idle" });
+              setCurrentStep(3);
+            }}
+            onCreateOrder={() => void handleCreateOrder()}
           />
         )}
     </div>

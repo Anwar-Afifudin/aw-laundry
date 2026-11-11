@@ -3,7 +3,6 @@ import {
   ArrowRightIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
-  InfoIcon,
   MapPinIcon,
   PhoneIcon,
   PlusIcon,
@@ -40,18 +39,12 @@ import type {
   CustomerAddress,
   CustomerAddressesState,
 } from "~/features/addresses/types";
+import type {
+  OrderDraftSummary,
+  OrderIntakeMethod,
+  OrderReturnMethod,
+} from "~/features/orders/types";
 import { cn } from "~/lib/utils";
-
-export type OrderIntakeMethod = "PICKUP" | "DROPOFF";
-export type OrderReturnMethod = "DELIVERY" | "CUSTOMER_PICKUP";
-
-export type OrderDraftSummary = {
-  service: string;
-  price: string;
-  quantity: string;
-  subtotal: string;
-  duration: string;
-};
 
 type MethodOption<TMethod extends string> = {
   value: TMethod;
@@ -773,70 +766,5 @@ export function OrderShippingStep({
         onCreated={handleAddressCreated}
       />
     </>
-  );
-}
-
-export function OrderReviewPlaceholder({
-  headingRef,
-  summary,
-  intakeMethod,
-  returnMethod,
-  pickupAddress,
-  deliveryAddress,
-  onBack,
-}: {
-  headingRef: RefObject<HTMLHeadingElement | null>;
-  summary: OrderDraftSummary;
-  intakeMethod: OrderIntakeMethod;
-  returnMethod: OrderReturnMethod;
-  pickupAddress: CustomerAddress | null;
-  deliveryAddress: CustomerAddress | null;
-  onBack: () => void;
-}) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-      <Card className="shadow-sm">
-        <CardHeader className="border-b border-slate-100 pb-4">
-          <h2
-            ref={headingRef}
-            tabIndex={-1}
-            className="font-heading text-lg font-semibold text-slate-900 focus:outline-none"
-          >
-            Ringkasan sementara
-          </h2>
-          <CardDescription>
-            Tinjau pilihan yang sudah Anda isi pada tahap sebelumnya.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <Alert role="status" className="border-blue-200 bg-blue-50 text-blue-900">
-            <InfoIcon aria-hidden="true" />
-            <AlertTitle>Pesanan belum dibuat</AlertTitle>
-            <AlertDescription className="leading-6 text-blue-800">
-              Tahap ringkasan akhir dan pembuatan pesanan akan dilengkapi pada
-              pengembangan berikutnya. Belum ada data yang dikirim ke database.
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="h-11 w-full sm:w-auto"
-            onClick={onBack}
-          >
-            <ArrowLeftIcon aria-hidden="true" />
-            Kembali
-          </Button>
-        </CardContent>
-      </Card>
-
-      <ShippingSummary
-        summary={summary}
-        intakeMethod={intakeMethod}
-        returnMethod={returnMethod}
-        pickupAddress={pickupAddress}
-        deliveryAddress={deliveryAddress}
-      />
-    </div>
   );
 }
