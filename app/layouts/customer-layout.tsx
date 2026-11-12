@@ -9,6 +9,7 @@ import {
 import { NavLink, Outlet } from "react-router";
 
 import { BrandLogo } from "~/components/shared/brand-logo";
+import { AccountMenu } from "~/features/auth/components/account-menu";
 import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
 import { cn } from "~/lib/utils";
 
@@ -135,30 +136,12 @@ function CustomerApplicationLayout() {
           <BrandLogo to="/app" className="shrink-0" />
           <DesktopNavigation />
 
-          <span className="ml-auto text-xs font-semibold tracking-wide text-slate-500 uppercase md:hidden">
-            Area Pelanggan
-          </span>
-
-          <NavLink
-            to="/app/profile"
-            end
-            className={({ isActive }) =>
-              cn(
-                "ml-auto hidden items-center gap-2 rounded-lg border border-slate-200 bg-white p-1.5 pr-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:flex",
-                isActive && "border-blue-200 bg-blue-50",
-              )
-            }
-          >
-            <span className="flex size-8 items-center justify-center rounded-full bg-slate-100 text-slate-600">
-              <UserRoundIcon aria-hidden="true" className="size-4" />
-            </span>
-            <span className="hidden leading-tight lg:block">
-              <span className="block text-sm font-semibold text-slate-900">
-                Pelanggan
-              </span>
-              <span className="block text-xs text-slate-500">Lihat profil</span>
-            </span>
-          </NavLink>
+          <AccountMenu
+            className="ml-auto"
+            fallbackName="Pelanggan"
+            roleLabel="Pelanggan"
+            profilePath="/app/profile"
+          />
         </div>
       </header>
 

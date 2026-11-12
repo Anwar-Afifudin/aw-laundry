@@ -24,6 +24,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { AuthFormShell } from "~/features/auth/components/auth-form-shell";
+import { getRoleHome, isAppRole } from "~/features/auth/roles";
 import { supabase } from "~/lib/supabase/client";
 
 export const meta = () => [
@@ -40,9 +41,9 @@ type LoginField = keyof LoginValues;
 type LoginErrors = Partial<Record<LoginField, string>>;
 type LoginStatus = "idle" | "authenticating" | "verifying-profile";
 
-type CustomerProfile = {
+type LoginProfile = {
   id: string;
-  role: "CUSTOMER" | "ADMIN";
+  role: string;
   full_name: string;
   is_active: boolean;
 };
@@ -59,8 +60,8 @@ const PROFILE_VERIFICATION_ERROR =
   "Kami tidak dapat memverifikasi akun Anda. Silakan coba lagi atau hubungi A&W Laundry.";
 const INACTIVE_ACCOUNT_ERROR =
   "Akun Anda sedang tidak aktif. Hubungi A&W Laundry untuk mendapatkan bantuan.";
-const NON_CUSTOMER_ACCOUNT_ERROR =
-  "Akun ini tidak dapat digunakan untuk masuk ke area pelanggan.";
+const UNKNOWN_ROLE_ERROR =
+  "Peran akun ini tidak dikenali. Hubungi A&W Laundry untuk mendapatkan bantuan.";
 const SESSION_CLEANUP_ERROR =
   "Login dihentikan, tetapi sesi tidak dapat ditutup dengan aman. Jangan lanjutkan penggunaan aplikasi dan hubungi A&W Laundry.";
 
@@ -323,7 +324,7 @@ export default function LoginPage() {
         .from("profiles")
         .select("id, role, full_name, is_active")
         .eq("id", data.user.id)
-        .maybeSingle<CustomerProfile>();
+        .maybeSingle<LoginProfile>();
 
       if (!isMounted.current) {
         await signOutRejectedSession();
@@ -340,8 +341,8 @@ export default function LoginPage() {
         return;
       }
 
-      if (profile.role !== "CUSTOMER") {
-        await rejectAuthenticatedSession(NON_CUSTOMER_ACCOUNT_ERROR);
+      if (!isAppRole(profile.role)) {
+        await rejectAuthenticatedSession(UNKNOWN_ROLE_ERROR);
         return;
       }
 
@@ -349,7 +350,7 @@ export default function LoginPage() {
         ...currentValues,
         password: "",
       }));
-      void navigate("/app", { replace: true });
+      void navigate(getRoleHome(profile.role), { replace: true });
     } catch (error) {
       let sessionWasCleared = true;
 

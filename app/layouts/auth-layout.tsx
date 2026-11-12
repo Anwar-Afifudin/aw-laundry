@@ -2,6 +2,7 @@ import { CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
 import { Outlet } from "react-router";
 
 import { BrandLogo } from "~/components/shared/brand-logo";
+import { GuestGuard } from "~/features/auth/components/guest-guard";
 
 const benefits = [
   {
@@ -84,7 +85,9 @@ export default function AuthLayout() {
         </div>
 
         <div className="mx-auto flex w-full max-w-md flex-1 items-center py-10 sm:py-14">
-          <Outlet />
+          <GuestGuard>
+            <Outlet />
+          </GuestGuard>
         </div>
 
         <p className="mx-auto w-full max-w-md text-center text-xs leading-5 text-slate-500 lg:text-left">

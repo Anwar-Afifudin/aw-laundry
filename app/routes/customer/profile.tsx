@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CalendarDaysIcon,
   CheckCircle2Icon,
@@ -11,8 +11,6 @@ import {
   ShieldCheckIcon,
   UserRoundIcon,
 } from "lucide-react";
-import { useNavigate } from "react-router";
-
 import { PageHeader } from "~/components/shared/page-header";
 import {
   Alert,
@@ -28,6 +26,7 @@ import {
   CardHeader,
 } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { useLogout } from "~/features/auth/hooks/use-logout";
 import { supabase } from "~/lib/supabase/client";
 
 export function meta() {
@@ -157,42 +156,8 @@ function ProfileErrorState({ onRetry }: { onRetry: () => void }) {
 }
 
 function ProfileCard({ profile }: { profile: CustomerProfile }) {
-  const navigate = useNavigate();
-  const logoutInProgress = useRef(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const { isLoggingOut, logoutError, logout } = useLogout();
   const avatarUrl = profile.avatar_url?.trim() || null;
-
-  const handleLogout = async () => {
-    if (logoutInProgress.current) {
-      return;
-    }
-
-    logoutInProgress.current = true;
-    setIsLoggingOut(true);
-    setLogoutError(null);
-
-    try {
-      const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        logoutInProgress.current = false;
-        setIsLoggingOut(false);
-        setLogoutError(
-          "Anda belum berhasil keluar. Periksa koneksi lalu coba lagi.",
-        );
-        return;
-      }
-
-      void navigate("/login", { replace: true });
-    } catch {
-      logoutInProgress.current = false;
-      setIsLoggingOut(false);
-      setLogoutError(
-        "Anda belum berhasil keluar. Periksa koneksi lalu coba lagi.",
-      );
-    }
-  };
 
   return (
     <Card className="max-w-4xl shadow-sm">
@@ -277,7 +242,7 @@ function ProfileCard({ profile }: { profile: CustomerProfile }) {
           size="lg"
           className="h-10 w-full sm:w-auto"
           disabled={isLoggingOut}
-          onClick={handleLogout}
+          onClick={() => void logout()}
         >
           {isLoggingOut ? (
             <LoaderCircleIcon

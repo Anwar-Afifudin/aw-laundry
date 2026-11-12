@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { AccountMenu } from "~/features/auth/components/account-menu";
 import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
 import { cn } from "~/lib/utils";
 
@@ -132,25 +133,6 @@ function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function AdminProfile() {
-  return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <div
-        aria-hidden="true"
-        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
-      >
-        AD
-      </div>
-      <div className="hidden min-w-0 xl:block">
-        <p className="truncate text-sm font-semibold text-foreground">
-          Admin Laundry
-        </p>
-        <p className="truncate text-xs text-muted-foreground">Administrator</p>
-      </div>
-    </div>
-  );
-}
-
 function AdminApplicationLayout() {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const { pathname } = useLocation();
@@ -218,7 +200,10 @@ function AdminApplicationLayout() {
             </Button>
 
             <div className="h-8 w-px bg-border" aria-hidden="true" />
-            <AdminProfile />
+            <AccountMenu
+              fallbackName="Admin Laundry"
+              roleLabel="Administrator"
+            />
           </div>
         </header>
 

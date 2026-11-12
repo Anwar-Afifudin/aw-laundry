@@ -23,6 +23,7 @@ export default [
   route("admin", "layouts/admin-layout.tsx", [
     index("routes/admin/dashboard.tsx"),
     route("orders", "routes/admin/orders.tsx"),
+    route("orders/:orderId", "routes/admin/order-detail.tsx"),
     route("production", "routes/admin/production.tsx"),
     route("customers", "routes/admin/customers.tsx"),
     route("payments", "routes/admin/payments.tsx"),

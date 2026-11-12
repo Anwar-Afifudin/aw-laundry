@@ -71,6 +71,11 @@ export type CustomerOrderSummary = {
   items: CustomerOrderItemSummary[];
 };
 
+export type AdminOrderSummary = CustomerOrderSummary & {
+  customerName: string;
+  paymentStatus: OrderPaymentStatus;
+};
+
 export type OrderPaymentStatus =
   | "UNPAID"
   | "PENDING"

@@ -10,9 +10,13 @@ import {
 } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
+import {
+  getRoleHome,
+  isAppRole,
+  type AppRole,
+  type RoleHome,
+} from "~/features/auth/roles";
 import { supabase } from "~/lib/supabase/client";
-
-type AppRole = "CUSTOMER" | "ADMIN";
 
 type AccessProfile = {
   id: string;
@@ -24,7 +28,7 @@ type AccessProfile = {
 type GuardState =
   | { status: "checking" }
   | { status: "authorized" }
-  | { status: "redirect"; to: "/login" | "/app" }
+  | { status: "redirect"; to: "/login" | RoleHome }
   | { status: "unavailable" }
   | { status: "blocked" };
 
@@ -34,10 +38,6 @@ type AuthorizationGuardProps = {
 };
 
 type SessionCleanupResult = "cleared" | "changed" | "cancelled" | "failed";
-
-function isKnownRole(role: string): role is AppRole {
-  return role === "CUSTOMER" || role === "ADMIN";
-}
 
 function getErrorStatus(error: unknown): number | undefined {
   if (!error || typeof error !== "object") {
@@ -341,7 +341,7 @@ export function AuthorizationGuard({
           !profile ||
           profile.id !== user.id ||
           !profile.is_active ||
-          !isKnownRole(profile.role)
+          !isAppRole(profile.role)
         ) {
           await rejectSession(run, user.id);
           return;
@@ -356,10 +356,7 @@ export function AuthorizationGuard({
 
         setGuardState({
           status: "redirect",
-          to:
-            requiredRole === "ADMIN" && profile.role === "CUSTOMER"
-              ? "/app"
-              : "/login",
+          to: getRoleHome(profile.role),
         });
       } catch {
         if (isCurrentRun(run)) {
