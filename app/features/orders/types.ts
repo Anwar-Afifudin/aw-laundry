@@ -71,6 +71,63 @@ export type CustomerOrderSummary = {
   items: CustomerOrderItemSummary[];
 };
 
+export type OrderPaymentStatus =
+  | "UNPAID"
+  | "PENDING"
+  | "PAID"
+  | "FAILED"
+  | "REFUNDED";
+
+export type OrderAddressSnapshot = {
+  label: string | null;
+  recipientName: string;
+  phone: string;
+  addressLine: string;
+  district: string | null;
+  city: string | null;
+  postalCode: string | null;
+  notes: string | null;
+};
+
+export type CustomerOrderDetailItem = CustomerOrderItemSummary & {
+  unitPrice: number;
+  estimatedSubtotal: number;
+  finalSubtotal: number;
+  notes: string | null;
+};
+
+export type CustomerOrderStatusEvent = {
+  id: string;
+  status: OrderStatus;
+  note: string | null;
+  createdAt: string;
+};
+
+export type CustomerOrderDetail = {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  paymentStatus: OrderPaymentStatus;
+  createdAt: string;
+  estimatedCompletionAt: string | null;
+  actualCompletionAt: string | null;
+  specialInstructions: string | null;
+  estimatedSubtotal: number;
+  finalSubtotal: number;
+  pickupFee: number;
+  deliveryFee: number;
+  discountAmount: number;
+  additionalCharge: number;
+  estimatedTotal: number;
+  finalTotal: number;
+  intakeMethod: OrderIntakeMethod;
+  returnMethod: OrderReturnMethod;
+  pickupAddress: OrderAddressSnapshot | null;
+  deliveryAddress: OrderAddressSnapshot | null;
+  items: CustomerOrderDetailItem[];
+  statusHistory: CustomerOrderStatusEvent[];
+};
+
 export type CreateCustomerOrderErrorKind =
   | "authentication"
   | "authorization"
