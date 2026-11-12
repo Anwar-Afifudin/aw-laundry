@@ -16,6 +16,7 @@ export default [
     index("routes/customer/home.tsx"),
     route("orders", "routes/customer/orders.tsx"),
     route("orders/new", "routes/customer/new-order.tsx"),
+    route("orders/:orderId", "routes/customer/order-detail.tsx"),
     route("chat", "routes/customer/chat.tsx"),
     route("profile", "routes/customer/profile.tsx"),
   ]),

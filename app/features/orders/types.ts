@@ -49,6 +49,28 @@ export type CreatedCustomerOrder = {
   createdAt: string;
 };
 
+export type OrderPriceType = "PER_KG" | "PER_ITEM" | "PER_METER" | "FIXED";
+
+export type CustomerOrderItemSummary = {
+  id: string;
+  serviceName: string;
+  priceType: OrderPriceType;
+  estimatedQuantity: number | null;
+  actualQuantity: number | null;
+};
+
+export type CustomerOrderSummary = {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  createdAt: string;
+  estimatedCompletionAt: string | null;
+  estimatedTotal: number;
+  intakeMethod: OrderIntakeMethod;
+  returnMethod: OrderReturnMethod;
+  items: CustomerOrderItemSummary[];
+};
+
 export type CreateCustomerOrderErrorKind =
   | "authentication"
   | "authorization"
