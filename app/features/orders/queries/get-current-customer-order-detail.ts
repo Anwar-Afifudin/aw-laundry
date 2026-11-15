@@ -8,6 +8,7 @@ import type {
   OrderPriceType,
   OrderReturnMethod,
   OrderStatus,
+  ServiceBillingUnit,
 } from "../types";
 
 type AddressSnapshotRow = {
@@ -46,9 +47,11 @@ type CustomerOrderDetailRow = {
     id: string;
     service_name_snapshot: string;
     price_type_snapshot: OrderPriceType;
+    billing_unit_snapshot: ServiceBillingUnit;
     unit_price_snapshot: number;
     estimated_quantity: number | null;
     actual_quantity: number | null;
+    actual_item_count: number | null;
     estimated_subtotal: number;
     final_subtotal: number;
     notes: string | null;
@@ -115,8 +118,8 @@ export async function getCurrentCustomerOrderDetail(
       intake_method, return_method, pickup_address_snapshot,
       delivery_address_snapshot,
       order_items (
-        id, service_name_snapshot, price_type_snapshot, unit_price_snapshot,
-        estimated_quantity, actual_quantity, estimated_subtotal,
+        id, service_name_snapshot, price_type_snapshot, billing_unit_snapshot, unit_price_snapshot,
+        estimated_quantity, actual_quantity, actual_item_count, estimated_subtotal,
         final_subtotal, notes
       ),
       order_status_history (
@@ -159,9 +162,11 @@ export async function getCurrentCustomerOrderDetail(
         id: item.id,
         serviceName: item.service_name_snapshot,
         priceType: item.price_type_snapshot,
+        billingUnit: item.billing_unit_snapshot,
         unitPrice: Number(item.unit_price_snapshot),
         estimatedQuantity: item.estimated_quantity === null ? null : Number(item.estimated_quantity),
         actualQuantity: item.actual_quantity === null ? null : Number(item.actual_quantity),
+        actualItemCount: item.actual_item_count,
         estimatedSubtotal: Number(item.estimated_subtotal),
         finalSubtotal: Number(item.final_subtotal),
         notes: item.notes,

@@ -1,14 +1,46 @@
-import { WashingMachine } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import { CircleAlertIcon, Clock3Icon, LoaderCircleIcon, PackageCheckIcon, SearchIcon, WashingMachineIcon } from "lucide-react";
+import { PageHeader } from "~/components/shared/page-header";
+import { Badge } from "~/components/ui/badge";
+import { Button, buttonVariants } from "~/components/ui/button";
+import { Card, CardContent } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Skeleton } from "~/components/ui/skeleton";
+import { billingUnitLabels, formatOrderItemCount, orderStatusLabels, orderStatusStyles } from "~/features/orders/order-display";
+import type { AdminOrderSummary, OrderStatus } from "~/features/orders/types";
+import { getAdminProductionOrders, productionStatuses } from "~/features/production/queries/get-admin-production-orders";
+import { cn } from "~/lib/utils";
 
-import { PlaceholderCard } from "~/components/shared/placeholder-card";
-
+type PageState = { status: "loading" } | { status: "ready"; orders: AdminOrderSummary[] } | { status: "error" };
+type Filter = "ALL" | (typeof productionStatuses)[number];
+const filters: Array<{ value: Filter; label: string }> = [
+  { value: "ALL", label: "Semua" }, { value: "WAITING_PROCESS", label: "Menunggu" }, { value: "WASHING", label: "Dicuci" },
+  { value: "DRYING", label: "Dikeringkan" }, { value: "IRONING", label: "Disetrika" }, { value: "QUALITY_CONTROL", label: "Quality Check" },
+  { value: "PACKING", label: "Dikemas" }, { value: "READY", label: "Siap Dikembalikan" },
+];
+const workingStatuses: readonly OrderStatus[] = ["WASHING", "DRYING", "IRONING", "QUALITY_CONTROL", "PACKING"];
+const dateTime = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
+function StatusBadge({ status }: { status: OrderStatus }) { return <Badge variant="outline" className={cn("border-transparent ring-1", orderStatusStyles[status])}>{orderStatusLabels[status]}</Badge>; }
+function services(order: AdminOrderSummary) { return order.items.length ? order.items.map((item) => item.serviceName).join(", ") : "Layanan tidak tersedia"; }
+const quantity = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
+function quantities(order: AdminOrderSummary) { return order.items.length ? order.items.map((item) => { const actual = item.actualQuantity === null ? "Belum tersedia" : `${quantity.format(item.actualQuantity)} ${billingUnitLabels[item.billingUnit]}`; const count = formatOrderItemCount(item); return `${item.serviceName}: ${actual}${count ? ` • ${count}` : ""}`; }).join(" • ") : "Belum tersedia"; }
+function productionProgress(order: AdminOrderSummary) { const ready = order.items.filter((item) => item.productionStatus === "READY").length; return `${ready} dari ${order.items.length} layanan selesai`; }
+function deadline(order: AdminOrderSummary) { return order.estimatedCompletionAt ? dateTime.format(new Date(order.estimatedCompletionAt)) : "Belum ditentukan"; }
+function SummaryCards({ orders }: { orders: AdminOrderSummary[] }) { const cards = [
+  { label: "Total Produksi Aktif", value: orders.length, icon: WashingMachineIcon, tone: "text-blue-600 bg-blue-50" },
+  { label: "Menunggu Diproses", value: orders.filter((o) => o.status === "WAITING_PROCESS").length, icon: Clock3Icon, tone: "text-amber-600 bg-amber-50" },
+  { label: "Sedang Dikerjakan", value: orders.filter((o) => workingStatuses.includes(o.status)).length, icon: LoaderCircleIcon, tone: "text-indigo-600 bg-indigo-50" },
+  { label: "Siap Dikembalikan", value: orders.filter((o) => o.status === "READY").length, icon: PackageCheckIcon, tone: "text-emerald-600 bg-emerald-50" },
+]; return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(({ label, value, icon: Icon, tone }) => <Card key={label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-slate-600">{label}</p><p className="mt-2 text-2xl font-bold">{value}</p></div><span className={cn("rounded-xl p-3", tone)}><Icon className="size-5" /></span></CardContent></Card>)}</div>; }
+function MobileCard({ order }: { order: AdminOrderSummary }) { return <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-4 p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{order.orderNumber}</p><p className="mt-1 text-sm text-slate-600">{order.customerName}</p></div><StatusBadge status={order.status} /></div><dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">Layanan</dt><dd className="mt-1">{services(order)}</dd></div><div><dt className="text-xs text-slate-500">Progress layanan</dt><dd className="mt-1 font-medium">{productionProgress(order)}</dd></div><div><dt className="text-xs text-slate-500">Berat/jumlah aktual</dt><dd className="mt-1">{quantities(order)}</dd></div><div><dt className="text-xs text-slate-500">Estimasi selesai</dt><dd className="mt-1">{deadline(order)}</dd></div></dl><Link to={`/admin/production/${order.id}`} className={cn(buttonVariants({ variant: "outline" }), "w-full")}>Lihat Detail</Link></CardContent></Card>; }
+function DesktopTable({ orders }: { orders: AdminOrderSummary[] }) { return <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white md:block"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-4">Pesanan &amp; Pelanggan</th><th className="px-5 py-4">Layanan</th><th className="px-5 py-4">Berat Aktual</th><th className="px-5 py-4">Status Produksi</th><th className="px-5 py-4">Estimasi Selesai</th><th className="px-5 py-4 text-right">Aksi</th></tr></thead><tbody className="divide-y divide-slate-200">{orders.map((order) => <tr key={order.id} className="align-top"><td className="px-5 py-4"><p className="font-semibold">{order.orderNumber}</p><p className="mt-1 text-slate-600">{order.customerName}</p></td><td className="max-w-56 px-5 py-4">{services(order)}</td><td className="max-w-64 px-5 py-4">{quantities(order)}</td><td className="px-5 py-4"><StatusBadge status={order.status} /><p className="mt-2 whitespace-nowrap text-xs text-slate-500">{productionProgress(order)}</p></td><td className="whitespace-nowrap px-5 py-4">{deadline(order)}</td><td className="px-5 py-4 text-right"><Link to={`/admin/production/${order.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Lihat Detail</Link></td></tr>)}</tbody></table></div></div>; }
+function Loading() { return <div className="space-y-5"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map((x) => <Skeleton key={x} className="h-28 rounded-xl" />)}</div><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-80 rounded-xl" /></div>; }
+export function meta() { return [{ title: "Produksi Admin | A&W Laundry" }]; }
 export default function AdminProductionPage() {
-  return (
-    <PlaceholderCard
-      icon={WashingMachine}
-      title="Produksi"
-      description="Antrean dan progres proses laundry akan dipantau di halaman ini."
-      note="Belum ada antrean produksi untuk ditampilkan."
-    />
-  );
+  const [state, setState] = useState<PageState>({ status: "loading" }); const [filter, setFilter] = useState<Filter>("ALL"); const [search, setSearch] = useState("");
+  const load = useCallback(async () => { setState({ status: "loading" }); try { setState({ status: "ready", orders: await getAdminProductionOrders() }); } catch { setState({ status: "error" }); } }, []);
+  useEffect(() => { void load(); }, [load]);
+  const visible = useMemo(() => state.status !== "ready" ? [] : state.orders.filter((order) => (filter === "ALL" || order.status === filter) && `${order.orderNumber} ${order.customerName}`.toLocaleLowerCase("id-ID").includes(search.trim().toLocaleLowerCase("id-ID"))), [state, filter, search]);
+  return <div className="space-y-6"><PageHeader eyebrow="Operasional admin" title="Produksi" description="Pantau antrean dan progres pengerjaan laundry." />{state.status === "loading" ? <Loading /> : state.status === "error" ? <Card className="text-center"><CardContent className="py-12"><CircleAlertIcon className="mx-auto size-11 text-rose-500" /><h2 className="mt-4 text-lg font-semibold">Data produksi belum dapat dimuat</h2><p className="mt-2 text-sm text-slate-600">Terjadi gangguan saat mengambil antrean produksi.</p><Button className="mt-5" onClick={() => void load()}>Coba lagi</Button></CardContent></Card> : <><SummaryCards orders={state.orders} /><div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4"><div className="relative"><SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari nomor pesanan atau pelanggan..." className="pl-9" /></div><div className="flex gap-2 overflow-x-auto pb-1">{filters.map((item) => <Button key={item.value} size="sm" variant={filter === item.value ? "default" : "outline"} onClick={() => setFilter(item.value)} className="shrink-0">{item.label}</Button>)}</div></div>{visible.length ? <><div className="space-y-4 md:hidden">{visible.map((order) => <MobileCard key={order.id} order={order} />)}</div><DesktopTable orders={visible} /></> : <Card className="text-center"><CardContent className="py-12"><WashingMachineIcon className="mx-auto size-11 text-slate-400" /><h2 className="mt-4 text-lg font-semibold">Tidak ada pekerjaan produksi</h2><p className="mt-2 text-sm text-slate-600">Belum ada pesanan yang sesuai dengan filter atau pencarian.</p></CardContent></Card>}</>}</div>;
 }

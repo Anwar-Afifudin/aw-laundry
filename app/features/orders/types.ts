@@ -19,17 +19,19 @@ export type OrderStatus =
   | "CANCELLED";
 
 export type OrderDraftSummary = {
-  service: string;
-  price: string;
-  quantity: string;
+  items: Array<{
+    service: string;
+    price: string;
+    quantity: string;
+    subtotal: string;
+  }>;
   subtotal: string;
   duration: string;
 };
 
 export type CreateCustomerOrderInput = {
   orderId: string;
-  serviceId: string;
-  estimatedQuantity: number;
+  items: Array<{ serviceId: string; estimatedQuantity: number }>;
   specialInstructions: string | null;
   intakeMethod: OrderIntakeMethod;
   returnMethod: OrderReturnMethod;
@@ -50,13 +52,34 @@ export type CreatedCustomerOrder = {
 };
 
 export type OrderPriceType = "PER_KG" | "PER_ITEM" | "PER_METER" | "FIXED";
+export type ServiceBillingUnit = "KG" | "PAIR" | "PCS" | "M2";
 
 export type CustomerOrderItemSummary = {
   id: string;
   serviceName: string;
   priceType: OrderPriceType;
+  billingUnit: ServiceBillingUnit;
   estimatedQuantity: number | null;
   actualQuantity: number | null;
+  actualItemCount: number | null;
+  productionSteps?: ProductionStatus[];
+  productionStatus?: OrderItemProductionStatus | null;
+  productionHistory?: OrderItemProductionStatusEvent[];
+};
+
+export type ProductionStatus = Extract<
+  OrderStatus,
+  "WASHING" | "DRYING" | "IRONING" | "QUALITY_CONTROL" | "PACKING" | "READY"
+>;
+
+export type OrderItemProductionStatus = "WAITING_PROCESS" | ProductionStatus;
+
+export type OrderItemProductionStatusEvent = {
+  id: string;
+  fromStatus: OrderItemProductionStatus | null;
+  status: OrderItemProductionStatus;
+  note: string | null;
+  createdAt: string;
 };
 
 export type CustomerOrderSummary = {
@@ -66,6 +89,7 @@ export type CustomerOrderSummary = {
   createdAt: string;
   estimatedCompletionAt: string | null;
   estimatedTotal: number;
+  finalTotal: number;
   intakeMethod: OrderIntakeMethod;
   returnMethod: OrderReturnMethod;
   items: CustomerOrderItemSummary[];
@@ -131,6 +155,14 @@ export type CustomerOrderDetail = {
   deliveryAddress: OrderAddressSnapshot | null;
   items: CustomerOrderDetailItem[];
   statusHistory: CustomerOrderStatusEvent[];
+};
+
+export type AdminOrderDetail = CustomerOrderDetail & {
+  customer: {
+    id: string;
+    fullName: string;
+    phone: string;
+  };
 };
 
 export type CreateCustomerOrderErrorKind =

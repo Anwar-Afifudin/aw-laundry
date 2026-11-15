@@ -13,6 +13,7 @@ import { Card, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Skeleton } from "~/components/ui/skeleton";
 import { getAdminOrders } from "~/features/orders/queries/get-admin-orders";
+import { formatBillingQuantity, formatRupiah, getOrderDisplayTotal } from "~/features/orders/order-display";
 import type { AdminOrderSummary, CustomerOrderItemSummary, OrderPaymentStatus, OrderStatus } from "~/features/orders/types";
 import { cn } from "~/lib/utils";
 
@@ -50,15 +51,11 @@ const paymentStyles: Record<OrderPaymentStatus, string> = {
 const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
 const dateFormatter = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: "Asia/Jakarta" });
 const jakartaDayFormatter = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Jakarta" });
-const rupiahFormatter = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
-const quantityFormatter = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
-
 function formatQuantity(item: CustomerOrderItemSummary | undefined) {
   if (!item) return "Belum tersedia";
   const quantity = item.actualQuantity ?? item.estimatedQuantity;
   if (quantity === null) return "Belum tersedia";
-  const units = { PER_KG: "kg", PER_ITEM: "item", PER_METER: "meter", FIXED: "paket" } as const;
-  return `${quantityFormatter.format(quantity)} ${units[item.priceType]}`;
+  return formatBillingQuantity(quantity, item.billingUnit, item.actualQuantity === null ? null : item.actualItemCount);
 }
 
 function methodLabels(order: AdminOrderSummary) {
@@ -101,7 +98,7 @@ function MobileOrderCard({ order }: { order: AdminOrderSummary }) {
     <dl className="grid grid-cols-2 gap-x-4 gap-y-4 p-4 text-sm">
       <div className="col-span-2"><dt className="text-xs font-medium text-slate-500">Layanan</dt><dd className="mt-1 font-medium text-slate-900">{primaryItem?.serviceName ?? "Layanan belum tersedia"}{extraItems > 0 ? ` +${extraItems} lainnya` : ""}</dd></div>
       <div><dt className="text-xs font-medium text-slate-500">Jumlah/berat</dt><dd className="mt-1 text-slate-800">{formatQuantity(primaryItem)}</dd></div>
-      <div><dt className="text-xs font-medium text-slate-500">Estimasi total</dt><dd className="mt-1 font-semibold text-slate-900">{rupiahFormatter.format(order.estimatedTotal)}</dd></div>
+      <div><dt className="text-xs font-medium text-slate-500">Total</dt><dd className="mt-1 font-semibold text-slate-900">{formatRupiah(getOrderDisplayTotal(order))}</dd></div>
       <div><dt className="text-xs font-medium text-slate-500">Dibuat</dt><dd className="mt-1 text-slate-800">{dateTimeFormatter.format(new Date(order.createdAt))}</dd></div>
       <div><dt className="text-xs font-medium text-slate-500">Estimasi selesai</dt><dd className="mt-1 text-slate-800">{order.estimatedCompletionAt ? dateTimeFormatter.format(new Date(order.estimatedCompletionAt)) : "Belum ditentukan"}</dd></div>
       <div className="col-span-2 space-y-1.5 text-slate-700"><p className="flex gap-2"><TruckIcon className="size-4 shrink-0 text-slate-400" />Penerimaan: {methods.intake}</p><p className="flex gap-2"><PackageOpenIcon className="size-4 shrink-0 text-slate-400" />Pengembalian: {methods.return}</p></div>
@@ -112,13 +109,13 @@ function MobileOrderCard({ order }: { order: AdminOrderSummary }) {
 
 function DesktopOrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
   return <Card className="hidden border-slate-200 py-0 shadow-sm md:block"><div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm">
-    <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold tracking-wide text-slate-600 uppercase"><tr><th className="px-4 py-3">Pesanan &amp; customer</th><th className="px-4 py-3">Layanan</th><th className="px-4 py-3">Estimasi</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Jadwal</th><th className="px-4 py-3">Metode</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead>
+    <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold tracking-wide text-slate-600 uppercase"><tr><th className="px-4 py-3">Pesanan &amp; customer</th><th className="px-4 py-3">Layanan</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Jadwal</th><th className="px-4 py-3">Metode</th><th className="px-4 py-3 text-right">Aksi</th></tr></thead>
     <tbody className="divide-y divide-slate-100">{orders.map((order) => {
       const primaryItem = order.items[0]; const extraItems = Math.max(order.items.length - 1, 0); const methods = methodLabels(order);
       return <tr key={order.id} className="align-top hover:bg-slate-50/60">
         <td className="px-4 py-4"><p className="font-bold text-slate-950">{order.orderNumber}</p><p className="mt-1 max-w-44 truncate text-slate-600">{order.customerName}</p><p className="mt-1 text-xs text-slate-500">{dateTimeFormatter.format(new Date(order.createdAt))}</p></td>
         <td className="px-4 py-4"><p className="max-w-48 font-medium text-slate-900">{primaryItem?.serviceName ?? "Belum tersedia"}{extraItems > 0 ? ` +${extraItems}` : ""}</p><p className="mt-1 text-slate-500">{formatQuantity(primaryItem)}</p></td>
-        <td className="px-4 py-4 font-semibold text-slate-900">{rupiahFormatter.format(order.estimatedTotal)}</td>
+        <td className="px-4 py-4 font-semibold text-slate-900">{formatRupiah(getOrderDisplayTotal(order))}</td>
         <td className="px-4 py-4"><StatusBadges order={order} /></td>
         <td className="px-4 py-4 text-slate-600"><p className="text-xs text-slate-500">Estimasi selesai</p><p className="mt-1">{order.estimatedCompletionAt ? dateFormatter.format(new Date(order.estimatedCompletionAt)) : "Belum ditentukan"}</p></td>
         <td className="px-4 py-4 text-slate-600"><p>{methods.intake}</p><p className="mt-1">{methods.return}</p></td>

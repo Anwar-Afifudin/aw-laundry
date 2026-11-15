@@ -1,47 +1,82 @@
-import { ArrowLeftIcon, ClipboardListIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeftIcon, CheckIcon, CircleAlertIcon, ClipboardListIcon, LoaderCircleIcon, PackageOpenIcon, PhoneIcon, RefreshCwIcon, TruckIcon, UserIcon } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { PageHeader } from "~/components/shared/page-header";
-import { buttonVariants } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
+import { Badge } from "~/components/ui/badge";
+import { Button, buttonVariants } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Separator } from "~/components/ui/separator";
+import { Skeleton } from "~/components/ui/skeleton";
+import { updateAdminOrderStatus } from "~/features/orders/mutations/update-admin-order-status";
+import { VerifyAdminOrderQuantitiesError, verifyAdminOrderQuantities } from "~/features/orders/mutations/verify-admin-order-quantities";
+import { billingEstimateLabels, billingQuantityLabels, billingUnitLabels, formatRupiah, orderStatusLabels, orderStatusStyles } from "~/features/orders/order-display";
+import { getAllowedNextStatuses } from "~/features/orders/order-workflow";
+import { getAdminOrderDetail } from "~/features/orders/queries/get-admin-order-detail";
+import type { AdminOrderDetail, CustomerOrderDetailItem, OrderAddressSnapshot, OrderPaymentStatus, OrderStatus } from "~/features/orders/types";
 import { cn } from "~/lib/utils";
 
-export function meta() {
-  return [{ title: "Detail Pesanan Admin | A&W Laundry" }];
+type DetailState = { status: "loading" } | { status: "ready"; order: AdminOrderDetail } | { status: "not_found" } | { status: "error" };
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const dateTime = new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Jakarta" });
+const quantity = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
+const paymentLabels: Record<OrderPaymentStatus, string> = { UNPAID: "Belum dibayar", PENDING: "Menunggu konfirmasi", PAID: "Lunas", FAILED: "Pembayaran gagal", REFUNDED: "Dikembalikan" };
+
+function StatusBadge({ status }: { status: OrderStatus }) { return <Badge variant="outline" className={cn("h-auto py-1 ring-1", orderStatusStyles[status])}>{orderStatusLabels[status]}</Badge>; }
+function AddressCard({ address }: { address: OrderAddressSnapshot }) { return <div className="mt-3 space-y-1 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600"><p className="font-semibold text-slate-900">{address.label ?? address.recipientName}</p><p>{address.recipientName} · {address.phone}</p><p>{address.addressLine}</p><p>{[address.district, address.city, address.postalCode].filter(Boolean).join(", ")}</p>{address.notes && <p className="text-slate-500">Catatan: {address.notes}</p>}</div>; }
+function LaundryItem({ item }: { item: CustomerOrderDetailItem }) {
+  const unit = billingUnitLabels[item.billingUnit];
+  const estimated = item.estimatedQuantity === null ? "Belum tersedia" : `${quantity.format(item.estimatedQuantity)} ${unit}`;
+  const actual = item.actualQuantity === null ? "Belum diverifikasi" : `${quantity.format(item.actualQuantity)} ${unit}`;
+  return <div className="rounded-xl border border-slate-200 p-4"><div className="flex flex-col gap-2 sm:flex-row sm:justify-between"><div><h3 className="font-semibold text-slate-950">{item.serviceName}</h3><p className="mt-1 text-sm text-slate-500">{formatRupiah(item.unitPrice)} / {unit}</p></div><p className="font-semibold text-slate-900">{formatRupiah(item.finalSubtotal > 0 ? item.finalSubtotal : item.estimatedSubtotal)}</p></div><dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-slate-500">{billingEstimateLabels[item.billingUnit]}</dt><dd className="mt-1 font-medium text-slate-900">{estimated}</dd></div><div><dt className="text-slate-500">{billingQuantityLabels[item.billingUnit]}</dt><dd className="mt-1 font-medium text-slate-900">{actual}</dd></div>{item.billingUnit === "KG" && <div><dt className="text-slate-500">Jumlah pakaian</dt><dd className="mt-1 font-medium text-slate-900">{item.actualItemCount === null ? "-" : `${quantity.format(item.actualItemCount)} pcs`}</dd></div>}</dl>{item.notes && <p className="mt-3 text-sm text-slate-600">Catatan item: {item.notes}</p>}</div>;
+}
+function QuantityVerification({ order, onUpdated }: { order: AdminOrderDetail; onUpdated: (order: AdminOrderDetail) => void }) {
+  const initialValues = () => Object.fromEntries(order.items.map((item) => [item.id, String(item.actualQuantity ?? item.estimatedQuantity ?? "")]));
+  const initialItemCounts = () => Object.fromEntries(order.items.map((item) => [item.id, String(item.actualItemCount ?? "")]));
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [itemCounts, setItemCounts] = useState<Record<string, string>>(initialItemCounts);
+  const [isSaving, setIsSaving] = useState(false); const [error, setError] = useState<string | null>(null); const [success, setSuccess] = useState(false); const saving = useRef(false);
+  useEffect(() => { setValues(initialValues()); setItemCounts(initialItemCounts()); }, [order]);
+  const parsed = order.items.map((item) => ({ item, value: Number(values[item.id]), itemCount: itemCounts[item.id] === "" ? null : Number(itemCounts[item.id]) }));
+  const isValid = parsed.every(({ item, value, itemCount }) => Number.isFinite(value) && value > 0 && (!(["PAIR", "PCS"] as const).includes(item.billingUnit as "PAIR" | "PCS") || Number.isInteger(value)) && (item.billingUnit !== "KG" || (itemCount !== null && Number.isInteger(itemCount) && itemCount > 0)));
+  const calculatedTotal = isValid ? parsed.reduce((total, { item, value }) => total + item.unitPrice * value, 0) : null;
+  const save = async () => { if (!isValid || saving.current) return; saving.current = true; setIsSaving(true); setError(null); setSuccess(false); try { await verifyAdminOrderQuantities(order.id, parsed.map(({ item, value, itemCount }) => ({ itemId: item.id, actualQuantity: value, actualItemCount: item.billingUnit === "KG" ? itemCount : null }))); const result = await getAdminOrderDetail(order.id); if (result.status !== "found") throw new Error(); onUpdated(result.order); setSuccess(true); } catch (saveError) { setError(saveError instanceof VerifyAdminOrderQuantitiesError ? saveError.message : "Verifikasi berhasil diproses tetapi detail terbaru belum dapat dimuat. Muat ulang halaman."); } finally { saving.current = false; setIsSaving(false); } };
+  return <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4"><div><h3 className="font-semibold text-blue-950">Verifikasi Kuantitas &amp; Harga Final</h3><p className="mt-1 text-sm text-blue-800">Masukkan kuantitas aktual seluruh layanan sebelum pesanan dapat diproses.</p></div><div className="mt-4 space-y-4">{order.items.map((item) => { const unit = billingUnitLabels[item.billingUnit]; const step = item.billingUnit === "PAIR" || item.billingUnit === "PCS" ? "1" : "0.001"; return <div key={item.id} className="rounded-lg bg-white p-4 ring-1 ring-blue-100"><p className="font-medium text-slate-900">{item.serviceName}</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs text-slate-500">{billingEstimateLabels[item.billingUnit]}</p><p className="mt-1 font-medium">{item.estimatedQuantity === null ? "Belum tersedia" : `${quantity.format(item.estimatedQuantity)} ${unit}`}</p></div><div><label htmlFor={`actual-${item.id}`} className="text-xs font-medium text-slate-600">{billingQuantityLabels[item.billingUnit]}</label><div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"><Input id={`actual-${item.id}`} type="number" inputMode="decimal" min="0.001" step={step} disabled={isSaving} value={values[item.id] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [item.id]: event.target.value }))} className="h-10 min-w-0 bg-white" /><span className="min-w-12 text-sm text-slate-600">{unit}</span></div></div>{item.billingUnit === "KG" && <div><label htmlFor={`count-${item.id}`} className="text-xs font-medium text-slate-600">Jumlah pakaian</label><div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"><Input id={`count-${item.id}`} type="number" inputMode="numeric" min="1" step="1" disabled={isSaving} value={itemCounts[item.id] ?? ""} onChange={(event) => setItemCounts((current) => ({ ...current, [item.id]: event.target.value }))} className="h-10 min-w-0 bg-white" /><span className="min-w-12 text-sm text-slate-600">pcs</span></div></div>}<div><p className="text-xs text-slate-500">Harga</p><p className="mt-1 font-medium">{formatRupiah(item.unitPrice)} / {unit}</p></div><div><p className="text-xs text-slate-500">Harga final</p><p className="mt-1 font-semibold text-blue-700">{Number(values[item.id]) > 0 ? formatRupiah(item.unitPrice * Number(values[item.id])) : "—"}</p></div></div></div>; })}</div><div className="mt-4 flex flex-col gap-3 border-t border-blue-200 pt-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs text-blue-700">Perkiraan total final</p><p className="text-xl font-bold text-blue-950">{calculatedTotal === null ? "—" : formatRupiah(calculatedTotal + order.pickupFee + order.deliveryFee + order.additionalCharge - order.discountAmount)}</p></div><Button className="w-full sm:w-auto" disabled={!isValid || isSaving} onClick={() => void save()}>{isSaving ? <LoaderCircleIcon className="animate-spin" /> : null}{isSaving ? "Menyimpan..." : "Simpan Verifikasi"}</Button></div>{!isValid && <p className="mt-3 text-xs text-red-700">Isi kuantitas lebih dari 0. Pasang dan pcs harus bulat; layanan kilogram juga wajib memiliki jumlah pakaian bulat lebih dari 0.</p>}{success && <Alert className="mt-3 border-emerald-200 bg-emerald-50 text-emerald-800"><CheckIcon /><AlertTitle>Verifikasi dan harga final tersimpan</AlertTitle></Alert>}{error && <Alert variant="destructive" className="mt-3"><CircleAlertIcon /><AlertTitle>Belum berhasil disimpan</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}</div>;
+}
+function DetailSkeleton() { return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]"><div className="space-y-6">{[0,1,2].map((x) => <Skeleton key={x} className="h-52 rounded-xl" />)}</div><div className="space-y-6"><Skeleton className="h-64 rounded-xl" /><Skeleton className="h-56 rounded-xl" /></div></div>; }
+
+function OrderContent({ order, onUpdated }: { order: AdminOrderDetail; onUpdated: (order: AdminOrderDetail) => void }) {
+  const allowed = useMemo(() => getAllowedNextStatuses(order.status, order.intakeMethod, order.returnMethod, order.items.map((item) => item.productionSteps ?? [])), [order]);
+  const [nextStatus, setNextStatus] = useState<OrderStatus | "">(allowed[0] ?? "");
+  const [isUpdating, setIsUpdating] = useState(false); const [error, setError] = useState<string | null>(null); const [success, setSuccess] = useState(false); const updating = useRef(false);
+  useEffect(() => { setNextStatus(allowed[0] ?? ""); }, [allowed]);
+  const updateStatus = async () => { if (!nextStatus || updating.current) return; updating.current = true; setIsUpdating(true); setError(null); setSuccess(false); try { await updateAdminOrderStatus(order.id, nextStatus); const result = await getAdminOrderDetail(order.id); if (result.status !== "found") throw new Error(); onUpdated(result.order); setSuccess(true); } catch { setError("Status pesanan belum dapat diperbarui. Muat ulang halaman lalu coba lagi."); } finally { updating.current = false; setIsUpdating(false); } };
+  const hasFinal = order.finalTotal > 0;
+  const quantitiesVerified = order.items.length > 0 && order.items.every((item) => item.actualQuantity !== null && (item.billingUnit !== "KG" || item.actualItemCount !== null));
+  const requiresVerification = order.status === "WEIGHING" && nextStatus === "WAITING_PROCESS" && !quantitiesVerified;
+  return <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="space-y-6">
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Informasi Pesanan</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">Nomor pesanan</p><p className="mt-1 font-semibold">{order.orderNumber}</p></div><div><p className="text-xs text-slate-500">Tanggal dibuat</p><p className="mt-1 font-medium">{dateTime.format(new Date(order.createdAt))}</p></div><div><p className="text-xs text-slate-500">Estimasi selesai</p><p className="mt-1 font-medium">{order.estimatedCompletionAt ? dateTime.format(new Date(order.estimatedCompletionAt)) : "Belum ditentukan"}</p></div><div className="flex flex-wrap gap-2"><StatusBadge status={order.status} /><Badge variant="secondary">{paymentLabels[order.paymentStatus]}</Badge></div></CardContent></Card>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Pelanggan</CardTitle></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2"><p className="flex items-center gap-2"><UserIcon className="size-4 text-blue-600" />{order.customer.fullName}</p><p className="flex items-center gap-2"><PhoneIcon className="size-4 text-blue-600" />{order.customer.phone}</p></CardContent></Card>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Detail Laundry</CardTitle></CardHeader><CardContent className="space-y-3">{order.status === "WEIGHING" && <QuantityVerification order={order} onUpdated={onUpdated} />}{order.items.map((item) => <LaundryItem key={item.id} item={item} />)}{order.specialInstructions && <div className="rounded-xl bg-amber-50 p-4"><p className="text-xs font-semibold text-amber-800">Catatan pelanggan</p><p className="mt-2 whitespace-pre-wrap text-sm text-amber-900">{order.specialInstructions}</p></div>}</CardContent></Card>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Pengambilan &amp; Pengantaran</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2"><div className="rounded-xl bg-slate-50 p-4"><p className="flex items-center gap-2 font-semibold"><TruckIcon className="size-4 text-blue-600" />{order.intakeMethod === "PICKUP" ? "Dijemput A&W Laundry" : "Diantar pelanggan"}</p>{order.pickupAddress && <AddressCard address={order.pickupAddress} />}</div><div className="rounded-xl bg-slate-50 p-4"><p className="flex items-center gap-2 font-semibold"><PackageOpenIcon className="size-4 text-blue-600" />{order.returnMethod === "DELIVERY" ? "Diantar ke alamat" : "Diambil di A&W Laundry"}</p>{order.deliveryAddress && <AddressCard address={order.deliveryAddress} />}</div></CardContent></Card>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Timeline Status</CardTitle></CardHeader><CardContent>{order.statusHistory.length === 0 ? <p className="text-sm text-slate-500">Riwayat status belum tersedia.</p> : <ol>{order.statusHistory.map((event, index) => <li key={event.id} className="relative flex gap-3 pb-6 last:pb-0">{index < order.statusHistory.length - 1 && <span className="absolute top-5 bottom-0 left-2.5 w-px bg-slate-200" />}<span className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white ring-4 ring-white"><CheckIcon className="size-3" /></span><div><p className="font-semibold text-slate-900">{orderStatusLabels[event.status]}</p><p className="mt-1 text-xs text-slate-500">{dateTime.format(new Date(event.createdAt))}</p>{event.note && <p className="mt-1 text-sm text-slate-600">{event.note}</p>}</div></li>)}</ol>}</CardContent></Card>
+    </div>
+    <aside className="space-y-6 lg:sticky lg:top-24">
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Ringkasan Biaya</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-slate-600">Estimasi subtotal</span><span>{formatRupiah(order.estimatedSubtotal)}</span></div><div className="flex justify-between"><span className="text-slate-600">Estimasi total</span><span>{formatRupiah(order.estimatedTotal)}</span></div>{hasFinal && <><Separator /><div className="flex justify-between font-bold"><span>Total final</span><span className="text-blue-700">{formatRupiah(order.finalTotal)}</span></div></>}<Badge variant="secondary">{paymentLabels[order.paymentStatus]}</Badge></CardContent></Card>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Kelola Pesanan</CardTitle></CardHeader><CardContent className="space-y-4"><div><p className="text-xs text-slate-500">Status saat ini</p><div className="mt-2"><StatusBadge status={order.status} /></div></div>{allowed.length > 0 ? <><label className="block text-sm font-medium" htmlFor="next-status">Status berikutnya</label><select id="next-status" value={nextStatus} disabled={isUpdating} onChange={(event) => setNextStatus(event.target.value as OrderStatus)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-200">{allowed.map((status) => <option key={status} value={status}>{orderStatusLabels[status]}</option>)}</select>{requiresVerification && <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">Berat atau jumlah aktual harus disimpan sebelum pesanan dapat masuk ke Menunggu diproses.</p>}<Button className="w-full" disabled={isUpdating || !nextStatus || requiresVerification} onClick={() => void updateStatus()}>{isUpdating ? <LoaderCircleIcon className="animate-spin" /> : null}{isUpdating ? "Memperbarui..." : "Perbarui Status"}</Button></> : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Pesanan telah berada pada status final.</p>}{success && <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800"><CheckIcon /><AlertTitle>Status diperbarui</AlertTitle></Alert>}{error && <Alert variant="destructive"><CircleAlertIcon /><AlertTitle>Belum berhasil</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}</CardContent></Card>
+    </aside>
+  </div>;
 }
 
+export function meta() { return [{ title: "Detail Pesanan Admin | A&W Laundry" }]; }
 export default function AdminOrderDetailPage() {
-  const { orderId } = useParams();
-
-  return (
-    <div className="space-y-6">
-      <Link
-        to="/admin/orders"
-        className={cn(buttonVariants({ variant: "ghost" }), "-ml-2")}
-      >
-        <ArrowLeftIcon aria-hidden="true" /> Kembali ke Pesanan
-      </Link>
-      <PageHeader
-        eyebrow="Operasional admin"
-        title="Detail Pesanan"
-        description="Pengelolaan detail dan status pesanan akan tersedia pada tahap berikutnya."
-      />
-      <Card className="border-slate-200 text-center shadow-sm">
-        <CardContent className="flex flex-col items-center px-5 py-10">
-          <ClipboardListIcon
-            aria-hidden="true"
-            className="size-11 text-blue-600"
-          />
-          <h2 className="mt-4 text-lg font-semibold text-slate-950">
-            Detail pesanan belum diimplementasikan
-          </h2>
-          <p className="mt-2 max-w-lg text-sm leading-6 text-slate-600">
-            Pesanan dengan ID {orderId ?? "tidak tersedia"} dipilih. Halaman ini
-            sengaja hanya menjadi tujuan navigasi yang aman pada tahap daftar
-            pesanan.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  const { orderId } = useParams(); const [state, setState] = useState<DetailState>({ status: "loading" });
+  const load = useCallback(async () => { if (!orderId || !uuidPattern.test(orderId)) { setState({ status: "not_found" }); return; } setState({ status: "loading" }); try { const result = await getAdminOrderDetail(orderId); setState(result.status === "found" ? { status: "ready", order: result.order } : { status: "not_found" }); } catch { setState({ status: "error" }); } }, [orderId]);
+  useEffect(() => { void load(); }, [load]);
+  return <div className="space-y-6"><Link to="/admin/orders" className={cn(buttonVariants({ variant: "ghost" }), "-ml-2")}><ArrowLeftIcon /> Kembali ke Pesanan</Link><PageHeader eyebrow="Operasional admin" title="Detail Pesanan" description={state.status === "ready" ? state.order.orderNumber : "Lihat informasi dan kelola workflow pesanan."} actions={state.status === "ready" ? <StatusBadge status={state.order.status} /> : undefined} />
+    {state.status === "loading" ? <DetailSkeleton /> : state.status === "ready" ? <OrderContent order={state.order} onUpdated={(order) => setState({ status: "ready", order })} /> : state.status === "not_found" ? <Card className="text-center"><CardContent className="py-12"><ClipboardListIcon className="mx-auto size-11 text-slate-400" /><h2 className="mt-4 text-lg font-semibold">Pesanan tidak ditemukan</h2><p className="mt-2 text-sm text-slate-600">Pesanan tidak tersedia atau tidak dapat diakses.</p></CardContent></Card> : <Card className="text-center"><CardContent className="py-12"><CircleAlertIcon className="mx-auto size-11 text-rose-500" /><h2 className="mt-4 text-lg font-semibold">Detail pesanan belum dapat dimuat</h2><p className="mt-2 text-sm text-slate-600">Terjadi gangguan saat mengambil data pesanan.</p><button onClick={() => void load()} className={cn(buttonVariants(), "mt-5")}><RefreshCwIcon /> Coba lagi</button></CardContent></Card>}
+  </div>;
 }

@@ -21,12 +21,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { getCurrentCustomerOrderDetail } from "~/features/orders/queries/get-current-customer-order-detail";
+import { billingEstimateLabels, billingQuantityLabels, billingUnitLabels } from "~/features/orders/order-display";
 import type {
   CustomerOrderDetail,
   CustomerOrderDetailItem,
   OrderAddressSnapshot,
   OrderPaymentStatus,
-  OrderPriceType,
   OrderStatus,
 } from "~/features/orders/types";
 import { cn } from "~/lib/utils";
@@ -79,12 +79,6 @@ const paymentLabels: Record<OrderPaymentStatus, string> = {
   FAILED: "Pembayaran gagal",
   REFUNDED: "Dana dikembalikan",
 };
-const unitLabels: Record<OrderPriceType, string> = {
-  PER_KG: "kg",
-  PER_ITEM: "item",
-  PER_METER: "meter",
-  FIXED: "paket",
-};
 
 const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
   dateStyle: "long",
@@ -124,19 +118,21 @@ function AddressCard({ address }: { address: OrderAddressSnapshot }) {
 }
 
 function LaundryItem({ item }: { item: CustomerOrderDetailItem }) {
-  const quantity = item.actualQuantity ?? item.estimatedQuantity;
   const usesFinalValue = item.actualQuantity !== null && item.finalSubtotal > 0;
-  const subtotal = usesFinalValue ? item.finalSubtotal : item.estimatedSubtotal;
+  const unit = billingUnitLabels[item.billingUnit];
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><WashingMachineIcon aria-hidden="true" className="size-5" /></span>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-slate-950">{item.serviceName}</h3>
-          <p className="mt-1 text-sm text-slate-600">{rupiahFormatter.format(item.unitPrice)} / {unitLabels[item.priceType]}</p>
+          <p className="mt-1 text-sm text-slate-600">{rupiahFormatter.format(item.unitPrice)} / {unit}</p>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-slate-500">{usesFinalValue ? "Jumlah terverifikasi" : "Perkiraan jumlah"}</dt><dd className="mt-0.5 font-semibold text-slate-900">{quantity === null ? "Belum tersedia" : `${quantityFormatter.format(quantity)} ${unitLabels[item.priceType]}`}</dd></div>
-            <div><dt className="text-slate-500">{usesFinalValue ? "Subtotal" : "Estimasi subtotal"}</dt><dd className="mt-0.5 font-semibold text-slate-900">{rupiahFormatter.format(subtotal)}</dd></div>
+            <div><dt className="text-slate-500">{billingEstimateLabels[item.billingUnit]}</dt><dd className="mt-0.5 font-semibold text-slate-900">{item.estimatedQuantity === null ? "Belum tersedia" : `${quantityFormatter.format(item.estimatedQuantity)} ${unit}`}</dd></div>
+            <div><dt className="text-slate-500">{billingQuantityLabels[item.billingUnit]}</dt><dd className="mt-0.5 font-semibold text-slate-900">{item.actualQuantity === null ? "Belum diverifikasi" : `${quantityFormatter.format(item.actualQuantity)} ${unit}`}</dd></div>
+            {item.billingUnit === "KG" && item.actualItemCount !== null && <div><dt className="text-slate-500">Jumlah pakaian</dt><dd className="mt-0.5 font-semibold text-slate-900">{quantityFormatter.format(item.actualItemCount)} pcs</dd></div>}
+            <div><dt className="text-slate-500">Estimasi subtotal</dt><dd className="mt-0.5 font-semibold text-slate-900">{rupiahFormatter.format(item.estimatedSubtotal)}</dd></div>
+            <div><dt className="text-slate-500">Subtotal final</dt><dd className="mt-0.5 font-semibold text-slate-900">{usesFinalValue ? rupiahFormatter.format(item.finalSubtotal) : "Belum tersedia"}</dd></div>
           </dl>
           {item.notes && <p className="mt-3 text-sm text-slate-600">Catatan item: {item.notes}</p>}
         </div>
@@ -154,7 +150,6 @@ function DetailSkeleton() {
 
 function OrderDetailContent({ order }: { order: CustomerOrderDetail }) {
   const hasFinalPrice = order.finalTotal > 0;
-  const shownSubtotal = hasFinalPrice ? order.finalSubtotal : order.estimatedSubtotal;
   const shownTotal = hasFinalPrice ? order.finalTotal : order.estimatedTotal;
 
   return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
@@ -192,14 +187,14 @@ function OrderDetailContent({ order }: { order: CustomerOrderDetail }) {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader><CardTitle>Ringkasan Biaya</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div className="flex justify-between gap-4"><span className="text-slate-600">{hasFinalPrice ? "Subtotal" : "Estimasi subtotal"}</span><span className="font-medium text-slate-900">{rupiahFormatter.format(shownSubtotal)}</span></div>
+          <div className="flex justify-between gap-4"><span className="text-slate-600">Estimasi subtotal</span><span className="font-medium text-slate-900">{rupiahFormatter.format(order.estimatedSubtotal)}</span></div>
           {order.pickupFee > 0 && <div className="flex justify-between gap-4"><span className="text-slate-600">Biaya pengambilan</span><span className="font-medium text-slate-900">{rupiahFormatter.format(order.pickupFee)}</span></div>}
           {order.deliveryFee > 0 && <div className="flex justify-between gap-4"><span className="text-slate-600">Biaya pengantaran</span><span className="font-medium text-slate-900">{rupiahFormatter.format(order.deliveryFee)}</span></div>}
           {order.additionalCharge > 0 && <div className="flex justify-between gap-4"><span className="text-slate-600">Biaya tambahan</span><span className="font-medium text-slate-900">{rupiahFormatter.format(order.additionalCharge)}</span></div>}
           {order.discountAmount > 0 && <div className="flex justify-between gap-4"><span className="text-slate-600">Diskon</span><span className="font-medium text-emerald-700">−{rupiahFormatter.format(order.discountAmount)}</span></div>}
           <Separator />
           <div className="flex items-end justify-between gap-4"><span className="font-semibold text-slate-900">{hasFinalPrice ? "Total" : "Estimasi total"}</span><span className="text-lg font-bold text-blue-700">{rupiahFormatter.format(shownTotal)}</span></div>
-          {!hasFinalPrice && <p className="rounded-lg bg-blue-50 p-3 text-xs leading-5 text-blue-800">Harga akhir dapat berubah setelah jumlah atau berat laundry diverifikasi oleh A&W Laundry.</p>}
+          <p className="rounded-lg bg-blue-50 p-3 text-xs leading-5 text-blue-800">Harga final ditentukan berdasarkan berat aktual setelah laundry ditimbang.</p>
         </CardContent>
       </Card>
 

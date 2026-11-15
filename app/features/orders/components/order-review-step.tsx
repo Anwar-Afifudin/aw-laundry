@@ -221,20 +221,20 @@ export function OrderReviewStep({
             >
               Detail laundry
             </h3>
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <ReviewDetail label="Layanan" value={summary.service} />
-              <ReviewDetail label="Harga layanan" value={summary.price} />
-              <ReviewDetail label="Perkiraan" value={summary.quantity} />
-              <ReviewDetail
-                label="Estimasi subtotal"
-                value={summary.subtotal}
-                emphasis
-              />
-              <ReviewDetail
-                label="Estimasi durasi"
-                value={summary.duration}
-              />
-            </dl>
+            <div className="mt-3 space-y-3">
+              {summary.items.map((item) => (
+                <div key={item.service} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div><p className="font-semibold text-slate-900">{item.service}</p><p className="mt-1 text-sm text-slate-600">{item.quantity} × {item.price}</p></div>
+                    <p className="font-bold text-blue-700">{item.subtotal}</p>
+                  </div>
+                </div>
+              ))}
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <ReviewDetail label="Subtotal layanan" value={summary.subtotal} emphasis />
+                <ReviewDetail label="Estimasi durasi" value={summary.duration} />
+              </dl>
+            </div>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
               <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">
                 Catatan laundry

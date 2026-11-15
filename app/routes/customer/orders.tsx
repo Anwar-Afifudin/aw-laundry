@@ -16,6 +16,7 @@ import { buttonVariants } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
 import { getCurrentCustomerOrders } from "~/features/orders/queries/get-current-customer-orders";
+import { billingUnitLabels, formatOrderItemCount } from "~/features/orders/order-display";
 import type {
   CustomerOrderItemSummary,
   CustomerOrderSummary,
@@ -84,16 +85,11 @@ const quantityFormatter = new Intl.NumberFormat("id-ID", {
 });
 
 function formatQuantity(item: CustomerOrderItemSummary) {
-  const quantity = item.actualQuantity ?? item.estimatedQuantity;
-  if (quantity === null) return "Jumlah belum tersedia";
-
-  const unitLabels = {
-    PER_KG: "kg",
-    PER_ITEM: "item",
-    PER_METER: "meter",
-    FIXED: "paket",
-  } as const;
-  return `${quantityFormatter.format(quantity)} ${unitLabels[item.priceType]}`;
+  const unit = billingUnitLabels[item.billingUnit];
+  const estimated = item.estimatedQuantity === null ? "Estimasi belum tersedia" : `Estimasi ${quantityFormatter.format(item.estimatedQuantity)} ${unit}`;
+  const actual = item.actualQuantity === null ? null : `Aktual ${quantityFormatter.format(item.actualQuantity)} ${unit}`;
+  const itemCount = formatOrderItemCount(item);
+  return actual ? `${estimated} · ${actual}${itemCount ? ` · ${itemCount}` : ""}` : estimated;
 }
 
 function OrderCard({ order }: { order: CustomerOrderSummary }) {
@@ -130,8 +126,8 @@ function OrderCard({ order }: { order: CustomerOrderSummary }) {
           </div>
 
           <div>
-            <p className="text-xs font-medium text-slate-500">Estimasi total</p>
-            <p className="mt-1 font-semibold text-slate-900">{rupiahFormatter.format(order.estimatedTotal)}</p>
+            <p className="text-xs font-medium text-slate-500">{order.finalTotal > 0 ? "Total final" : "Estimasi total"}</p>
+            <p className="mt-1 font-semibold text-slate-900">{rupiahFormatter.format(order.finalTotal > 0 ? order.finalTotal : order.estimatedTotal)}</p>
             {order.estimatedCompletionAt && (
               <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-600">
                 <CalendarClockIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />

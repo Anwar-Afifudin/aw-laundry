@@ -75,6 +75,8 @@ function mapRpcError(error: { code?: string; message: string }) {
 
   if (
     errorMessage.includes("INVALID_ORDER_INPUT") ||
+    errorMessage.includes("INVALID_ORDER_ITEMS") ||
+    errorMessage.includes("DUPLICATE_SERVICES") ||
     errorMessage.includes("INVALID_QUANTITY") ||
     errorMessage.includes("INVALID_SPECIAL_INSTRUCTIONS") ||
     errorMessage.includes("PICKUP_ADDRESS_REQUIRED") ||
@@ -149,10 +151,12 @@ export async function createCurrentCustomerOrder(
   }
 
   const { data, error } = await supabase
-    .rpc("create_customer_order", {
+    .rpc("create_customer_order_multi", {
       p_order_id: input.orderId,
-      p_service_id: input.serviceId,
-      p_estimated_quantity: input.estimatedQuantity,
+      p_items: input.items.map((item) => ({
+        service_id: item.serviceId,
+        estimated_quantity: item.estimatedQuantity,
+      })),
       p_intake_method: input.intakeMethod,
       p_return_method: input.returnMethod,
       p_pickup_address_id: input.pickupAddressId,

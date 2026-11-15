@@ -55,7 +55,7 @@ import type {
 import { getActiveServices } from "~/features/services/queries/get-active-services";
 import type {
   ActiveService,
-  ServicePriceType,
+  ServiceBillingUnit,
 } from "~/features/services/types";
 import { cn } from "~/lib/utils";
 
@@ -70,12 +70,11 @@ type OrderSubmissionState =
   | { status: "error"; title: string; message: string };
 
 type OrderStep = 1 | 2 | 3 | 4;
-type QuantityPriceType = Extract<ServicePriceType, "PER_KG" | "PER_ITEM">;
-type QuantityService = ActiveService & { price_type: QuantityPriceType };
+type QuantityService = ActiveService;
 
 type QuantityFieldConfig = {
   label: string;
-  unit: "kg" | "item";
+  unit: "kg" | "pasang" | "pcs" | "m²";
   min: number;
   step: number;
   inputMode: "decimal" | "numeric";
@@ -102,8 +101,8 @@ const stepDescriptions: Record<OrderStep, string> = {
   4: "Periksa kembali seluruh detail sebelum membuat pesanan.",
 };
 
-const quantityFieldConfigs: Record<QuantityPriceType, QuantityFieldConfig> = {
-  PER_KG: {
+const quantityFieldConfigs: Record<ServiceBillingUnit, QuantityFieldConfig> = {
+  KG: {
     label: "Perkiraan berat",
     unit: "kg",
     min: 0.1,
@@ -112,14 +111,32 @@ const quantityFieldConfigs: Record<QuantityPriceType, QuantityFieldConfig> = {
     placeholder: "3",
     helpText: "Gunakan kelipatan 0,1 kg.",
   },
-  PER_ITEM: {
-    label: "Jumlah item",
-    unit: "item",
+  PAIR: {
+    label: "Estimasi jumlah",
+    unit: "pasang",
     min: 1,
     step: 1,
     inputMode: "numeric",
     placeholder: "2",
-    helpText: "Masukkan jumlah item dalam bilangan bulat.",
+    helpText: "Masukkan jumlah pasang dalam bilangan bulat.",
+  },
+  PCS: {
+    label: "Estimasi jumlah",
+    unit: "pcs",
+    min: 1,
+    step: 1,
+    inputMode: "numeric",
+    placeholder: "2",
+    helpText: "Masukkan jumlah pcs dalam bilangan bulat.",
+  },
+  M2: {
+    label: "Estimasi luas",
+    unit: "m²",
+    min: 0.001,
+    step: 0.001,
+    inputMode: "decimal",
+    placeholder: "2.5",
+    helpText: "Masukkan luas dalam meter persegi.",
   },
 };
 
@@ -132,11 +149,11 @@ const quantityFormatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 1,
 });
 
-const priceUnitLabels: Record<ServicePriceType, string> = {
-  PER_KG: "/ kg",
-  PER_ITEM: "/ item",
-  PER_METER: "/ meter",
-  FIXED: "harga tetap",
+const priceUnitLabels: Record<ServiceBillingUnit, string> = {
+  KG: "/ kg",
+  PAIR: "/ pasang",
+  PCS: "/ pcs",
+  M2: "/ m²",
 };
 
 function formatPrice(price: number) {
@@ -147,18 +164,11 @@ function formatDuration(hours: number) {
   return `± ${hours} jam`;
 }
 
-function supportsOrderDetails(
-  service: ActiveService,
-): service is QuantityService {
-  return service.price_type === "PER_KG" || service.price_type === "PER_ITEM";
-}
-
 function validateEstimatedQuantity(
   rawQuantity: string,
-  priceType: QuantityPriceType,
+  billingUnit: ServiceBillingUnit,
 ): QuantityValidation {
-  const fieldLabel =
-    priceType === "PER_KG" ? "Perkiraan berat" : "Jumlah item";
+  const fieldLabel = quantityFieldConfigs[billingUnit].label;
   const trimmedQuantity = rawQuantity.trim();
 
   if (!trimmedQuantity) {
@@ -177,18 +187,18 @@ function validateEstimatedQuantity(
     };
   }
 
-  if (priceType === "PER_ITEM") {
+  if (billingUnit === "PAIR" || billingUnit === "PCS") {
     if (quantity < 1) {
       return {
         value: null,
-        error: "Jumlah item minimal 1.",
+        error: `${fieldLabel} minimal 1.`,
       };
     }
 
     if (!Number.isSafeInteger(quantity)) {
       return {
         value: null,
-        error: "Jumlah item harus berupa bilangan bulat.",
+        error: `${fieldLabel} harus berupa bilangan bulat.`,
       };
     }
 
@@ -203,8 +213,7 @@ function validateEstimatedQuantity(
   }
 
   const quantityInTenths = quantity * 10;
-
-  if (Math.abs(quantityInTenths - Math.round(quantityInTenths)) > 1e-9) {
+  if (billingUnit === "KG" && Math.abs(quantityInTenths - Math.round(quantityInTenths)) > 1e-9) {
     return {
       value: null,
       error: "Perkiraan berat harus menggunakan kelipatan 0,1 kg.",
@@ -214,7 +223,7 @@ function validateEstimatedQuantity(
   return { value: quantity, error: null };
 }
 
-function formatQuantity(quantity: number, unit: "kg" | "item") {
+function formatQuantity(quantity: number, unit: QuantityFieldConfig["unit"]) {
   return `${quantityFormatter.format(quantity)} ${unit}`;
 }
 
@@ -340,8 +349,7 @@ function ServiceCard({
     <div className="relative h-full">
       <input
         id={inputId}
-        type="radio"
-        name="laundry-service"
+        type="checkbox"
         value={service.id}
         checked={isSelected}
         aria-labelledby={titleId}
@@ -390,7 +398,7 @@ function ServiceCard({
                   {formatPrice(service.price)}
                 </span>
                 <span className="text-xs font-medium">
-                  {priceUnitLabels[service.price_type]}
+                  {priceUnitLabels[service.billing_unit]}
                 </span>
               </p>
               <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
@@ -472,10 +480,10 @@ function ServicesErrorState({ onRetry }: { onRetry: () => void }) {
 }
 
 function SelectionSummary({
-  service,
+  services,
   onContinue,
 }: {
-  service: ActiveService | null;
+  services: ActiveService[];
   onContinue: () => void;
 }) {
   return (
@@ -490,36 +498,16 @@ function SelectionSummary({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {service ? (
-            <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 px-4">
-              <div className="py-3">
-                <dt className="text-xs font-medium text-slate-500">Layanan</dt>
-                <dd className="mt-1 font-semibold text-slate-900">
-                  {service.name}
-                </dd>
-              </div>
-              <div className="py-3">
-                <dt className="text-xs font-medium text-slate-500">Harga</dt>
-                <dd className="mt-1 font-semibold text-slate-900">
-                  {formatPrice(service.price)}{" "}
-                  <span className="text-sm font-medium text-slate-500">
-                    {priceUnitLabels[service.price_type]}
-                  </span>
-                </dd>
-              </div>
-              <div className="py-3">
-                <dt className="text-xs font-medium text-slate-500">
-                  Estimasi durasi
-                </dt>
-                <dd className="mt-1 flex items-center gap-1.5 font-semibold text-slate-900">
-                  <Clock3Icon
-                    aria-hidden="true"
-                    className="size-4 text-blue-600"
-                  />
-                  {formatDuration(service.estimated_duration_hours)}
-                </dd>
-              </div>
-            </dl>
+          {services.length > 0 ? (
+            <div className="space-y-3">
+              {services.map((service) => (
+                <div key={service.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="font-semibold text-slate-900">{service.name}</p>
+                  <p className="mt-1 text-sm font-medium text-slate-600">{formatPrice(service.price)} {priceUnitLabels[service.billing_unit]}</p>
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><Clock3Icon className="size-4" />{formatDuration(service.estimated_duration_hours)}</p>
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="rounded-xl border border-dashed border-slate-300 px-4 py-7 text-center">
               <WashingMachineIcon
@@ -527,7 +515,7 @@ function SelectionSummary({
                 className="mx-auto size-6 text-slate-400"
               />
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                Pilih satu layanan untuk melihat ringkasannya.
+                Pilih minimal satu layanan untuk melihat ringkasannya.
               </p>
             </div>
           )}
@@ -536,7 +524,7 @@ function SelectionSummary({
             type="button"
             size="lg"
             className="h-11 w-full"
-            disabled={!service || !supportsOrderDetails(service)}
+            disabled={services.length === 0}
             onClick={onContinue}
           >
             Lanjutkan
@@ -549,15 +537,19 @@ function SelectionSummary({
 }
 
 function OrderDetailsSummary({
-  service,
-  quantity,
-  estimatedSubtotal,
+  services,
+  quantities,
 }: {
-  service: QuantityService;
-  quantity: number | null;
-  estimatedSubtotal: number | null;
+  services: QuantityService[];
+  quantities: Record<string, string>;
 }) {
-  const quantityConfig = quantityFieldConfigs[service.price_type];
+  const rows = services.map((service) => {
+    const value = validateEstimatedQuantity(quantities[service.id] ?? "", service.billing_unit).value;
+    return { service, value, subtotal: value === null ? null : service.price * value };
+  });
+  const total = rows.every((row) => row.subtotal !== null)
+    ? rows.reduce((sum, row) => sum + (row.subtotal ?? 0), 0)
+    : null;
 
   return (
     <aside aria-label="Ringkasan detail pesanan" className="lg:sticky lg:top-24">
@@ -571,55 +563,10 @@ function OrderDetailsSummary({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 px-4">
-            <div className="py-3">
-              <dt className="text-xs font-medium text-slate-500">Layanan</dt>
-              <dd className="mt-1 font-semibold text-slate-900">
-                {service.name}
-              </dd>
-            </div>
-            <div className="py-3">
-              <dt className="text-xs font-medium text-slate-500">Harga</dt>
-              <dd className="mt-1 font-semibold text-slate-900">
-                {formatPrice(service.price)}{" "}
-                <span className="text-sm font-medium text-slate-500">
-                  {priceUnitLabels[service.price_type]}
-                </span>
-              </dd>
-            </div>
-            <div className="py-3">
-              <dt className="text-xs font-medium text-slate-500">
-                Perkiraan
-              </dt>
-              <dd className="mt-1 font-semibold text-slate-900">
-                {quantity === null
-                  ? "-"
-                  : formatQuantity(quantity, quantityConfig.unit)}
-              </dd>
-            </div>
-            <div className="py-3">
-              <dt className="text-xs font-medium text-slate-500">
-                Estimasi subtotal
-              </dt>
-              <dd className="mt-1 text-lg font-bold text-blue-700">
-                {estimatedSubtotal === null
-                  ? "-"
-                  : formatPrice(estimatedSubtotal)}
-              </dd>
-            </div>
-            <div className="py-3">
-              <dt className="text-xs font-medium text-slate-500">
-                Estimasi durasi
-              </dt>
-              <dd className="mt-1 flex items-center gap-1.5 font-semibold text-slate-900">
-                <Clock3Icon
-                  aria-hidden="true"
-                  className="size-4 text-blue-600"
-                />
-                {formatDuration(service.estimated_duration_hours)}
-              </dd>
-            </div>
-          </dl>
+          <div className="space-y-3">
+            {rows.map(({ service, value, subtotal }) => <div key={service.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-semibold">{service.name}</p><p className="mt-1 text-sm text-slate-600">{value === null ? "Belum diisi" : formatQuantity(value, quantityFieldConfigs[service.billing_unit].unit)}</p><p className="mt-2 font-bold text-blue-700">{subtotal === null ? "-" : formatPrice(subtotal)}</p></div>)}
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4"><p className="text-xs font-medium uppercase text-blue-700">Subtotal layanan</p><p className="mt-1 text-xl font-bold text-blue-800">{total === null ? "-" : formatPrice(total)}</p></div>
+          </div>
         </CardContent>
       </Card>
     </aside>
@@ -627,8 +574,8 @@ function OrderDetailsSummary({
 }
 
 function OrderDetailsStep({
-  service,
-  estimatedQuantity,
+  services,
+  estimatedQuantities,
   notes,
   headingRef,
   onEstimatedQuantityChange,
@@ -636,46 +583,31 @@ function OrderDetailsStep({
   onBack,
   onContinue,
 }: {
-  service: QuantityService;
-  estimatedQuantity: string;
+  services: QuantityService[];
+  estimatedQuantities: Record<string, string>;
   notes: string;
   headingRef: RefObject<HTMLHeadingElement | null>;
-  onEstimatedQuantityChange: (quantity: string) => void;
+  onEstimatedQuantityChange: (serviceId: string, quantity: string) => void;
   onNotesChange: (notes: string) => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
-  const [quantityTouched, setQuantityTouched] = useState(false);
-  const quantityConfig = quantityFieldConfigs[service.price_type];
-  const quantityValidation = validateEstimatedQuantity(
-    estimatedQuantity,
-    service.price_type,
-  );
+  const [touchedServices, setTouchedServices] = useState<Set<string>>(new Set());
+  const validations = services.map((service) => ({
+    service,
+    validation: validateEstimatedQuantity(estimatedQuantities[service.id] ?? "", service.billing_unit),
+  }));
   const notesError =
     notes.length > 500 ? "Catatan laundry maksimal 500 karakter." : null;
-  const showQuantityError =
-    quantityValidation.error !== null &&
-    (quantityTouched || estimatedQuantity !== "");
-  const calculatedSubtotal =
-    quantityValidation.value === null
-      ? null
-      : service.price * quantityValidation.value;
-  const estimatedSubtotal =
-    calculatedSubtotal !== null && Number.isFinite(calculatedSubtotal)
-      ? calculatedSubtotal
-      : null;
   const isFormValid =
-    quantityValidation.value !== null &&
-    estimatedSubtotal !== null &&
+    validations.every(({ validation }) => validation.value !== null) &&
     notesError === null;
-  const quantityHelpId = "estimated-quantity-help";
-  const quantityErrorId = "estimated-quantity-error";
   const notesHelpId = "laundry-notes-help";
   const notesErrorId = "laundry-notes-error";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setQuantityTouched(true);
+    setTouchedServices(new Set(services.map((service) => service.id)));
 
     if (!isFormValid) {
       return;
@@ -700,56 +632,12 @@ function OrderDetailsStep({
             Detail pesanan
           </h2>
           <CardDescription>
-            Lengkapi perkiraan untuk layanan {service.name}.
+            Lengkapi perkiraan untuk setiap layanan yang dipilih.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div>
-            <Label htmlFor="estimated-quantity">
-              {quantityConfig.label}
-              <span aria-hidden="true" className="text-red-600">
-                *
-              </span>
-            </Label>
-            <div className="relative mt-2">
-              <Input
-                id="estimated-quantity"
-                type="number"
-                min={quantityConfig.min}
-                step={quantityConfig.step}
-                inputMode={quantityConfig.inputMode}
-                placeholder={quantityConfig.placeholder}
-                value={estimatedQuantity}
-                required
-                aria-invalid={showQuantityError || undefined}
-                aria-describedby={`${quantityHelpId}${
-                  showQuantityError ? ` ${quantityErrorId}` : ""
-                }`}
-                className="h-11 pr-14"
-                onChange={(event) =>
-                  onEstimatedQuantityChange(event.target.value)
-                }
-                onBlur={() => setQuantityTouched(true)}
-              />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500"
-              >
-                {quantityConfig.unit}
-              </span>
-            </div>
-            <p id={quantityHelpId} className="mt-2 text-xs text-slate-500">
-              {quantityConfig.helpText}
-            </p>
-            {showQuantityError && (
-              <p
-                id={quantityErrorId}
-                role="alert"
-                className="mt-2 text-sm font-medium text-red-600"
-              >
-                {quantityValidation.error}
-              </p>
-            )}
+          <div className="space-y-4">
+            {validations.map(({ service, validation }) => { const config = quantityFieldConfigs[service.billing_unit]; const inputId = `estimated-quantity-${service.id}`; const showError = validation.error !== null && (touchedServices.has(service.id) || Boolean(estimatedQuantities[service.id])); return <div key={service.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><p className="font-semibold text-slate-900">{service.name}</p><p className="mt-1 text-sm text-slate-500">{formatPrice(service.price)} {priceUnitLabels[service.billing_unit]}</p><Label htmlFor={inputId} className="mt-4">{config.label}<span className="text-red-600">*</span></Label><div className="relative mt-2"><Input id={inputId} type="number" min={config.min} step={config.step} inputMode={config.inputMode} placeholder={config.placeholder} value={estimatedQuantities[service.id] ?? ""} required aria-invalid={showError || undefined} className="h-11 pr-16" onChange={(event) => onEstimatedQuantityChange(service.id, event.target.value)} onBlur={() => setTouchedServices((current) => new Set(current).add(service.id))} /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500">{config.unit}</span></div><p className="mt-2 text-xs text-slate-500">{config.helpText}</p>{showError && <p role="alert" className="mt-2 text-sm font-medium text-red-600">{validation.error}</p>}</div>; })}
           </div>
 
           <div>
@@ -813,9 +701,8 @@ function OrderDetailsStep({
       </Card>
 
       <OrderDetailsSummary
-        service={service}
-        quantity={quantityValidation.value}
-        estimatedSubtotal={estimatedSubtotal}
+        services={services}
+        quantities={estimatedQuantities}
       />
     </form>
   );
@@ -836,10 +723,8 @@ export default function NewOrderPage() {
   });
   const [addressRetryKey, setAddressRetryKey] = useState(0);
   const [currentStep, setCurrentStep] = useState<OrderStep>(1);
-  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(
-    null,
-  );
-  const [estimatedQuantity, setEstimatedQuantity] = useState("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [estimatedQuantities, setEstimatedQuantities] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
   const [intakeMethod, setIntakeMethod] =
     useState<OrderIntakeMethod | null>(null);
@@ -863,8 +748,8 @@ export default function NewOrderPage() {
 
     setServicesState({ status: "loading" });
     setCurrentStep(1);
-    setSelectedServiceId(null);
-    setEstimatedQuantity("");
+    setSelectedServiceIds([]);
+    setEstimatedQuantities({});
     setNotes("");
     setIntakeMethod(null);
     setPickupAddressId(null);
@@ -941,40 +826,19 @@ export default function NewOrderPage() {
 
   const services =
     servicesState.status === "ready" ? servicesState.services : [];
-  const selectedService =
-    services.find((service) => service.id === selectedServiceId) ?? null;
-  const detailsService =
-    selectedService && supportsOrderDetails(selectedService)
-      ? selectedService
-      : null;
-  const detailQuantityValidation = detailsService
-    ? validateEstimatedQuantity(estimatedQuantity, detailsService.price_type)
+  const selectedServices = selectedServiceIds
+    .map((id) => services.find((service) => service.id === id))
+    .filter((service): service is ActiveService => Boolean(service));
+  const draftItems = selectedServices.map((service) => {
+    const quantity = validateEstimatedQuantity(estimatedQuantities[service.id] ?? "", service.billing_unit).value;
+    return { service, quantity, subtotal: quantity === null ? null : service.price * quantity };
+  });
+  const draftIsValid = draftItems.length > 0 && draftItems.every((item) => item.quantity !== null && item.subtotal !== null);
+  const draftSubtotal = draftIsValid ? draftItems.reduce((sum, item) => sum + (item.subtotal ?? 0), 0) : null;
+  const longestDuration = selectedServices.length > 0 ? Math.max(...selectedServices.map((service) => service.estimated_duration_hours)) : 0;
+  const orderDraftSummary: OrderDraftSummary | null = draftIsValid && draftSubtotal !== null
+    ? { items: draftItems.map(({ service, quantity, subtotal }) => ({ service: service.name, price: `${formatPrice(service.price)} ${priceUnitLabels[service.billing_unit]}`, quantity: formatQuantity(quantity!, quantityFieldConfigs[service.billing_unit].unit), subtotal: formatPrice(subtotal!) })), subtotal: formatPrice(draftSubtotal), duration: formatDuration(longestDuration) }
     : null;
-  const detailQuantity = detailQuantityValidation?.value ?? null;
-  const calculatedDraftSubtotal =
-    detailsService && detailQuantity !== null
-      ? detailsService.price * detailQuantity
-      : null;
-  const draftSubtotal =
-    calculatedDraftSubtotal !== null &&
-    Number.isFinite(calculatedDraftSubtotal)
-      ? calculatedDraftSubtotal
-      : null;
-  const orderDraftSummary: OrderDraftSummary | null =
-    detailsService && detailQuantity !== null && draftSubtotal !== null
-      ? {
-          service: detailsService.name,
-          price: `${formatPrice(detailsService.price)} ${
-            priceUnitLabels[detailsService.price_type]
-          }`,
-          quantity: formatQuantity(
-            detailQuantity,
-            quantityFieldConfigs[detailsService.price_type].unit,
-          ),
-          subtotal: formatPrice(draftSubtotal),
-          duration: formatDuration(detailsService.estimated_duration_hours),
-        }
-      : null;
   const addresses =
     addressesState.status === "ready" ? addressesState.addresses : [];
   const selectedPickupAddress =
@@ -987,18 +851,9 @@ export default function NewOrderPage() {
       : null;
 
   function handleServiceSelection(serviceId: string) {
-    if (serviceId !== selectedServiceId) {
-      setEstimatedQuantity("");
-      setNotes("");
-      setIntakeMethod(null);
-      setPickupAddressId(null);
-      setReturnMethod(null);
-      setDeliveryAddressId(null);
-      setAddressesState({ status: "idle" });
-      addressesLoadedRef.current = false;
-    }
-
-    setSelectedServiceId(serviceId);
+    setSelectedServiceIds((current) => current.includes(serviceId) ? current.filter((id) => id !== serviceId) : [...current, serviceId]);
+    setEstimatedQuantities((current) => { if (!(serviceId in current)) return current; const next = { ...current }; delete next[serviceId]; return next; });
+    orderRequestIdRef.current = null;
   }
 
   function handleIntakeMethodChange(method: OrderIntakeMethod) {
@@ -1064,7 +919,7 @@ export default function NewOrderPage() {
       return;
     }
 
-    if (!detailsService) {
+    if (selectedServices.length === 0) {
       setOrderSubmissionState({
         status: "error",
         title: "Periksa kembali pesanan",
@@ -1073,26 +928,12 @@ export default function NewOrderPage() {
       return;
     }
 
-    const quantityValidation = validateEstimatedQuantity(
-      estimatedQuantity,
-      detailsService.price_type,
-    );
-    const quantity = quantityValidation.value;
-    const calculatedSubtotal =
-      quantity === null ? null : detailsService.price * quantity;
-
-    if (
-      quantity === null ||
-      calculatedSubtotal === null ||
-      !Number.isFinite(calculatedSubtotal) ||
-      calculatedSubtotal < 0
-    ) {
+    const invalidItem = draftItems.find((item) => item.quantity === null || item.subtotal === null || !Number.isFinite(item.subtotal));
+    if (invalidItem) {
       setOrderSubmissionState({
         status: "error",
         title: "Periksa kembali pesanan",
-        message:
-          quantityValidation.error ??
-          "Perkiraan jumlah laundry belum dapat dihitung.",
+        message: validateEstimatedQuantity(estimatedQuantities[invalidItem.service.id] ?? "", invalidItem.service.billing_unit).error ?? "Perkiraan jumlah laundry belum dapat dihitung.",
       });
       return;
     }
@@ -1151,8 +992,7 @@ export default function NewOrderPage() {
     try {
       const order = await createCurrentCustomerOrder({
         orderId: orderRequestIdRef.current,
-        serviceId: detailsService.id,
-        estimatedQuantity: quantity,
+        items: draftItems.map(({ service, quantity }) => ({ serviceId: service.id, estimatedQuantity: quantity! })),
         specialInstructions: notes.trim() || null,
         intakeMethod,
         returnMethod,
@@ -1227,18 +1067,18 @@ export default function NewOrderPage() {
                 Pilih layanan
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Anda dapat memilih satu layanan untuk pesanan ini.
+                Anda dapat memilih satu atau beberapa layanan dalam satu pesanan.
               </p>
             </div>
 
             <fieldset>
-              <legend className="sr-only">Pilih satu layanan laundry</legend>
+              <legend className="sr-only">Pilih layanan laundry</legend>
               <div className="grid gap-4 sm:grid-cols-2">
                 {services.map((service) => (
                   <ServiceCard
                     key={service.id}
                     service={service}
-                    isSelected={selectedServiceId === service.id}
+                    isSelected={selectedServiceIds.includes(service.id)}
                     onSelect={handleServiceSelection}
                   />
                 ))}
@@ -1247,9 +1087,9 @@ export default function NewOrderPage() {
           </section>
 
           <SelectionSummary
-            service={selectedService}
+            services={selectedServices}
             onContinue={() => {
-              if (detailsService) {
+              if (selectedServices.length > 0) {
                 setCurrentStep(2);
               }
             }}
@@ -1259,13 +1099,13 @@ export default function NewOrderPage() {
 
       {servicesState.status === "ready" &&
         currentStep === 2 &&
-        detailsService && (
+        selectedServices.length > 0 && (
           <OrderDetailsStep
-            service={detailsService}
-            estimatedQuantity={estimatedQuantity}
+            services={selectedServices}
+            estimatedQuantities={estimatedQuantities}
             notes={notes}
             headingRef={stepHeadingRef}
-            onEstimatedQuantityChange={setEstimatedQuantity}
+            onEstimatedQuantityChange={(serviceId, quantity) => setEstimatedQuantities((current) => ({ ...current, [serviceId]: quantity }))}
             onNotesChange={setNotes}
             onBack={() => setCurrentStep(1)}
             onContinue={() => setCurrentStep(3)}

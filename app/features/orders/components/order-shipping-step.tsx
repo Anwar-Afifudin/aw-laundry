@@ -492,9 +492,11 @@ function ShippingSummary({
         </CardHeader>
         <CardContent>
           <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 px-4">
-            <SummaryRow label="Layanan">{summary.service}</SummaryRow>
-            <SummaryRow label="Harga">{summary.price}</SummaryRow>
-            <SummaryRow label="Perkiraan">{summary.quantity}</SummaryRow>
+            {summary.items.map((item) => (
+              <SummaryRow key={item.service} label={item.service}>
+                {item.quantity} × {item.price} = {item.subtotal}
+              </SummaryRow>
+            ))}
             <SummaryRow label="Estimasi subtotal" emphasis>
               {summary.subtotal}
             </SummaryRow>

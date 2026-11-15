@@ -1,14 +1,54 @@
-import { ChartNoAxesCombined } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { BanknoteIcon, CalendarDaysIcon, ChartNoAxesCombinedIcon, CheckCircle2Icon, CircleAlertIcon, DownloadIcon, ReceiptTextIcon, RefreshCwIcon, SearchIcon, XCircleIcon } from "lucide-react";
+import { PageHeader } from "~/components/shared/page-header";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Input } from "~/components/ui/input";
+import { Skeleton } from "~/components/ui/skeleton";
+import { RevenueChart } from "~/features/reports/components/revenue-chart";
+import { calculateAdminReport } from "~/features/reports/report-calculations";
+import { downloadOrdersCsv } from "~/features/reports/report-csv";
+import { createReportRange, getPresetRange } from "~/features/reports/report-periods";
+import { getAdminReportSource } from "~/features/reports/queries/get-admin-report";
+import type { AdminReport, ReportDateRange, ReportOrder, ReportPreset } from "~/features/reports/types";
+import { billingUnitLabels, formatBillingQuantity, formatRupiah, getOrderDisplayTotal, orderStatusLabels, orderStatusStyles } from "~/features/orders/order-display";
+import { paymentMethodLabels, paymentStatusLabels, paymentStatusStyles } from "~/features/payments/payment-display";
+import { cn } from "~/lib/utils";
 
-import { PlaceholderCard } from "~/components/shared/placeholder-card";
+type State = { status: "loading" } | { status: "ready"; report: AdminReport } | { status: "error" };
+const presets: Array<{ value: Exclude<ReportPreset, "CUSTOM">; label: string }> = [{ value: "TODAY", label: "Hari ini" }, { value: "LAST_7_DAYS", label: "7 hari terakhir" }, { value: "LAST_30_DAYS", label: "30 hari terakhir" }, { value: "THIS_MONTH", label: "Bulan ini" }, { value: "LAST_MONTH", label: "Bulan lalu" }];
+const date = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: "Asia/Jakarta" });
+const quantity = new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 });
+const units = billingUnitLabels;
+const methods = ["CASH", "BANK_TRANSFER", "QRIS", "COD"] as const;
+function quantities(order: ReportOrder) { return order.items.length ? order.items.map((item) => item.actualQuantity === null ? `${item.serviceName}: belum diverifikasi` : `${item.serviceName}: ${formatBillingQuantity(item.actualQuantity, item.billingUnit, item.actualItemCount)}`).join(" • ") : "Belum tersedia"; }
+function paid(order: ReportOrder) { return order.payments.find((payment) => payment.status === "PAID") ?? null; }
+function Metric({ label, value, icon: Icon, tone }: { label: string; value: string | number; icon: ComponentType<{ className?: string }>; tone: string }) { return <Card className="border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between gap-3"><div><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-xl font-bold text-slate-950">{value}</p></div><span className={cn("rounded-xl p-3", tone)}><Icon className="size-5" /></span></CardContent></Card>; }
+function ReportLoading() { return <div className="space-y-6"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{[0,1,2,3,4].map((x) => <Skeleton key={x} className="h-28 rounded-xl" />)}</div><Skeleton className="h-80 rounded-xl" /><Skeleton className="h-72 rounded-xl" /></div>; }
 
+export function meta() { return [{ title: "Laporan Admin | A&W Laundry" }]; }
 export default function AdminReportsPage() {
-  return (
-    <PlaceholderCard
-      icon={ChartNoAxesCombined}
-      title="Laporan"
-      description="Laporan operasional dan bisnis nantinya tersedia di halaman ini."
-      note="Belum ada data laporan untuk ditampilkan."
-    />
-  );
+  const initial = getPresetRange("LAST_30_DAYS"); const [preset, setPreset] = useState<ReportPreset>("LAST_30_DAYS"); const [range, setRange] = useState<ReportDateRange>(initial); const [customStart, setCustomStart] = useState(initial.startDate); const [customEnd, setCustomEnd] = useState(initial.endDate); const [state, setState] = useState<State>({ status: "loading" }); const [search, setSearch] = useState(""); const [dateError, setDateError] = useState<string | null>(null);
+  const load = useCallback(async () => { setState({ status: "loading" }); try { setState({ status: "ready", report: calculateAdminReport(await getAdminReportSource(range), range) }); } catch { setState({ status: "error" }); } }, [range]);
+  useEffect(() => { void load(); }, [load]);
+  const choosePreset = (value: Exclude<ReportPreset, "CUSTOM">) => {
+    const nextRange = getPresetRange(value);
+    setPreset(value);
+    setDateError(null);
+    setCustomStart(nextRange.startDate);
+    setCustomEnd(nextRange.endDate);
+    setRange(nextRange);
+  };
+  const applyCustom = () => { if (!customStart || !customEnd || customStart > customEnd) { setDateError("Tanggal mulai harus sama atau sebelum tanggal selesai."); return; } setDateError(null); setPreset("CUSTOM"); setRange(createReportRange(customStart, customEnd)); };
+  const filtered = useMemo(() => state.status !== "ready" ? [] : state.report.orders.filter((order) => `${order.orderNumber} ${order.customerName}`.toLocaleLowerCase("id-ID").includes(search.trim().toLocaleLowerCase("id-ID"))), [search, state]);
+  return <div className="space-y-6"><PageHeader eyebrow="Analitik admin" title="Laporan" description="Pantau performa operasional, pendapatan, dan layanan A&W Laundry." actions={state.status === "ready" ? <Button variant="outline" onClick={() => downloadOrdersCsv(state.report.orders, `laporan-aw-laundry-${range.startDate}-${range.endDate}.csv`)} disabled={!state.report.orders.length}><DownloadIcon /> Export CSV</Button> : undefined} />
+    <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-4"><div className="flex gap-2 overflow-x-auto pb-1">{presets.map((item) => <Button key={item.value} size="sm" variant={preset === item.value ? "default" : "outline"} className="shrink-0" onClick={() => choosePreset(item.value)}>{item.label}</Button>)}</div><div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="text-sm font-medium">Tanggal mulai<Input type="date" className="mt-1" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="text-sm font-medium">Tanggal selesai<Input type="date" className="mt-1" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label><Button onClick={applyCustom}>Terapkan Custom</Button></div>{dateError && <p className="text-sm text-red-600">{dateError}</p>}<p className="text-xs text-slate-500">Periode aktif: {date.format(new Date(range.startIso))} – {date.format(new Date(`${range.endDate}T12:00:00+07:00`))}</p></CardContent></Card>
+    {state.status === "loading" ? <ReportLoading /> : state.status === "error" ? <Card className="text-center"><CardContent className="py-12"><CircleAlertIcon className="mx-auto size-11 text-rose-500" /><h2 className="mt-4 text-lg font-semibold">Laporan belum dapat dimuat</h2><p className="mt-2 text-sm text-slate-600">Terjadi gangguan saat mengambil data laporan.</p><Button className="mt-5" onClick={() => void load()}><RefreshCwIcon /> Coba lagi</Button></CardContent></Card> : <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Total Pesanan" value={state.report.totalOrders} icon={ReceiptTextIcon} tone="bg-blue-50 text-blue-700" /><Metric label="Pesanan Selesai" value={state.report.completedOrders} icon={CheckCircle2Icon} tone="bg-emerald-50 text-emerald-700" /><Metric label="Pesanan Dibatalkan" value={state.report.cancelledOrders} icon={XCircleIcon} tone="bg-rose-50 text-rose-700" /><Metric label="Total Pendapatan" value={formatRupiah(state.report.totalRevenue)} icon={BanknoteIcon} tone="bg-violet-50 text-violet-700" /><Metric label="Rata-rata Transaksi" value={formatRupiah(state.report.averageTransaction)} icon={ChartNoAxesCombinedIcon} tone="bg-sky-50 text-sky-700" /></div>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Pendapatan</CardTitle></CardHeader><CardContent><RevenueChart points={state.report.revenuePoints} /></CardContent></Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]"><Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Ranking Layanan</CardTitle></CardHeader><CardContent>{state.report.services.length ? <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-3">Layanan</th><th>Jumlah order</th><th>Kuantitas aktual</th><th>Pendapatan</th><th>Kontribusi</th></tr></thead><tbody className="divide-y">{state.report.services.map((service) => <tr key={service.serviceName}><td className="py-4 font-semibold">{service.serviceName}</td><td>{service.orderCount}</td><td>{Object.entries(service.quantities).map(([type, value]) => `${quantity.format(value)} ${units[type as keyof typeof units]}`).join(" • ") || "-"}</td><td>{formatRupiah(service.revenue)}</td><td>{quantity.format(service.contribution)}%</td></tr>)}</tbody></table></div> : <p className="py-10 text-center text-sm text-slate-500">Belum ada layanan berpendapatan pada periode ini.</p>}</CardContent></Card><Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Metode Pembayaran</CardTitle></CardHeader><CardContent className="space-y-3">{methods.map((method) => <div key={method} className="flex items-center justify-between rounded-lg bg-slate-50 p-3"><div><p className="font-medium">{paymentMethodLabels[method]}</p><p className="text-xs text-slate-500">{state.report.paymentMethods[method].count} transaksi</p></div><p className="font-semibold">{formatRupiah(state.report.paymentMethods[method].amount)}</p></div>)}</CardContent></Card></div>
+      <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Pesanan dalam Periode</CardTitle></CardHeader><CardContent className="space-y-4"><div className="relative max-w-md"><SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" /><Input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nomor pesanan atau pelanggan..." className="pl-9" /></div>{filtered.length ? <><div className="space-y-3 md:hidden">{filtered.map((order) => { const payment = paid(order); return <div key={order.id} className="space-y-3 rounded-xl border p-4"><div><p className="font-bold">{order.orderNumber}</p><p className="text-sm text-slate-600">{order.customerName}</p></div><p className="text-sm">{order.items.map((item) => item.serviceName).join(", ")}</p><p className="text-xs text-slate-500">{quantities(order)}</p><div className="flex flex-wrap gap-2"><Badge className={orderStatusStyles[order.status]}>{orderStatusLabels[order.status]}</Badge><Badge className={paymentStatusStyles[order.paymentStatus]}>{paymentStatusLabels[order.paymentStatus]}</Badge></div><div className="flex justify-between text-sm"><span>{payment ? paymentMethodLabels[payment.method] : "-"}</span><strong>{formatRupiah(getOrderDisplayTotal(order))}</strong></div></div>; })}</div><div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-3">Pesanan</th><th>Pelanggan</th><th>Layanan</th><th>Aktual</th><th>Total</th><th>Status</th><th>Pembayaran</th><th>Metode</th><th>Tanggal</th></tr></thead><tbody className="divide-y">{filtered.map((order) => { const payment = paid(order); return <tr key={order.id}><td className="py-4 font-semibold">{order.orderNumber}</td><td>{order.customerName}</td><td>{order.items.map((item) => item.serviceName).join(", ")}</td><td className="max-w-60">{quantities(order)}</td><td className="font-semibold">{formatRupiah(getOrderDisplayTotal(order))}</td><td><Badge className={orderStatusStyles[order.status]}>{orderStatusLabels[order.status]}</Badge></td><td><Badge className={paymentStatusStyles[order.paymentStatus]}>{paymentStatusLabels[order.paymentStatus]}</Badge></td><td>{payment ? paymentMethodLabels[payment.method] : "-"}</td><td>{date.format(new Date(order.createdAt))}</td></tr>; })}</tbody></table></div></> : <div className="py-12 text-center"><CalendarDaysIcon className="mx-auto size-10 text-slate-400" /><p className="mt-3 font-semibold">Tidak ada pesanan</p><p className="mt-1 text-sm text-slate-500">Belum ada pesanan yang sesuai periode atau pencarian.</p></div>}</CardContent></Card>
+    </>}
+  </div>;
 }

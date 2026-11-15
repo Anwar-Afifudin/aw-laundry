@@ -4,6 +4,8 @@ export type ServicePriceType =
   | "PER_METER"
   | "FIXED";
 
+export type ServiceBillingUnit = "KG" | "PAIR" | "PCS" | "M2";
+
 export type ActiveService = {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ export type ActiveService = {
   description: string | null;
   price: number;
   price_type: ServicePriceType;
+  billing_unit: ServiceBillingUnit;
   estimated_duration_hours: number;
   image_url: string | null;
 };

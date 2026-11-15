@@ -6,7 +6,7 @@ export async function getActiveServices(): Promise<ActiveService[]> {
   const { data, error } = await supabase
     .from("services")
     .select(
-      "id, name, slug, description, price, price_type, estimated_duration_hours, image_url",
+      "id, name, slug, description, price, price_type, billing_unit, estimated_duration_hours, image_url",
     )
     .eq("is_active", true)
     .order("name", { ascending: true })
