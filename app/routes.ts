@@ -27,6 +27,7 @@ export default [
     route("production", "routes/admin/production.tsx"),
     route("production/:orderId", "routes/admin/production-detail.tsx"),
     route("customers", "routes/admin/customers.tsx"),
+    route("customers/:customerId", "routes/admin/customer-detail.tsx"),
     route("payments", "routes/admin/payments.tsx"),
     route("payments/:orderId", "routes/admin/payment-detail.tsx"),
     route("complaints", "routes/admin/complaints.tsx"),
