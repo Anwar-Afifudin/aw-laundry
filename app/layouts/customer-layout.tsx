@@ -3,6 +3,7 @@ import {
   ClipboardListIcon,
   HouseIcon,
   MessageCircleIcon,
+  MessageSquareWarningIcon,
   PlusIcon,
   UserRoundIcon,
 } from "lucide-react";
@@ -20,7 +21,7 @@ type CustomerNavigationItem = {
   featured?: boolean;
 };
 
-const customerNavigation: CustomerNavigationItem[] = [
+const desktopNavigation: CustomerNavigationItem[] = [
   { label: "Home", to: "/app", icon: HouseIcon },
   { label: "Orders", to: "/app/orders", icon: ClipboardListIcon },
   {
@@ -29,7 +30,20 @@ const customerNavigation: CustomerNavigationItem[] = [
     icon: PlusIcon,
     featured: true,
   },
+  { label: "Komplain", to: "/app/complaints", icon: MessageSquareWarningIcon },
   { label: "Chat", to: "/app/chat", icon: MessageCircleIcon },
+];
+
+const mobileNavigation: CustomerNavigationItem[] = [
+  { label: "Home", to: "/app", icon: HouseIcon },
+  { label: "Orders", to: "/app/orders", icon: ClipboardListIcon },
+  {
+    label: "New Order",
+    to: "/app/orders/new",
+    icon: PlusIcon,
+    featured: true,
+  },
+  { label: "Komplain", to: "/app/complaints", icon: MessageSquareWarningIcon },
   { label: "Profile", to: "/app/profile", icon: UserRoundIcon },
 ];
 
@@ -39,7 +53,7 @@ function DesktopNavigation() {
       aria-label="Navigasi pelanggan utama"
       className="hidden flex-1 items-center justify-center gap-1 md:flex"
     >
-      {customerNavigation.slice(0, 4).map((item) => {
+      {desktopNavigation.map((item) => {
         const Icon = item.icon;
 
         return (
@@ -75,7 +89,7 @@ function MobileNavigation() {
       className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-16px_rgba(15,23,42,0.35)] backdrop-blur md:hidden"
     >
       <div className="mx-auto grid max-w-lg grid-cols-5">
-        {customerNavigation.map((item) => {
+        {mobileNavigation.map((item) => {
           const Icon = item.icon;
 
           if (item.featured) {

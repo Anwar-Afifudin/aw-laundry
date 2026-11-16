@@ -5,6 +5,7 @@ import {
   CircleAlertIcon,
   ClipboardListIcon,
   MapPinIcon,
+  MessageSquareWarningIcon,
   PackageOpenIcon,
   PhoneIcon,
   RefreshCwIcon,
@@ -232,7 +233,19 @@ export default function CustomerOrderDetailPage() {
 
   return <div className="space-y-6">
     <Link to="/app/orders" className={cn(buttonVariants({ variant: "ghost" }), "-ml-2")}><ArrowLeftIcon aria-hidden="true" /> Kembali ke Pesanan</Link>
-    <PageHeader eyebrow="Aplikasi pelanggan" title="Detail Pesanan" description="Pantau informasi dan perkembangan laundry Anda." />
+    <PageHeader
+      eyebrow="Aplikasi pelanggan"
+      title="Detail Pesanan"
+      description="Pantau informasi dan perkembangan laundry Anda."
+      actions={state.status === "ready" ? (
+        <Link
+          to={`/app/complaints/new?orderId=${state.order.id}`}
+          className={buttonVariants({ variant: "outline", size: "lg" })}
+        >
+          <MessageSquareWarningIcon aria-hidden="true" /> Ajukan Komplain
+        </Link>
+      ) : undefined}
+    />
     {state.status === "loading" ? <DetailSkeleton /> : state.status === "ready" ? <OrderDetailContent order={state.order} /> : state.status === "not_found" ? (
       <Card className="border-slate-200 text-center shadow-sm"><CardContent className="flex flex-col items-center px-5 py-10"><ClipboardListIcon aria-hidden="true" className="size-11 text-slate-400" /><h2 className="mt-4 text-lg font-semibold text-slate-950">Pesanan tidak ditemukan</h2><p className="mt-2 max-w-md text-sm text-slate-600">Pesanan mungkin tidak tersedia atau tidak dapat diakses oleh akun Anda.</p><Link to="/app/orders" className={cn(buttonVariants({ size: "lg" }), "mt-5")}><ArrowLeftIcon aria-hidden="true" /> Kembali ke Pesanan</Link></CardContent></Card>
     ) : (

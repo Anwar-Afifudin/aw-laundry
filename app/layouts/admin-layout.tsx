@@ -137,7 +137,14 @@ function AdminApplicationLayout() {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false);
   const { pathname } = useLocation();
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
-  const pageTitle = ADMIN_PAGE_TITLES[normalizedPath] ?? "Admin";
+  const pageTitle =
+    ADMIN_PAGE_TITLES[normalizedPath] ??
+    Object.entries(ADMIN_PAGE_TITLES)
+      .sort(([pathA], [pathB]) => pathB.length - pathA.length)
+      .find(
+        ([path]) => path !== "/admin" && normalizedPath.startsWith(`${path}/`),
+      )?.[1] ??
+    "Admin";
 
   return (
     <div className="min-h-svh bg-background">
