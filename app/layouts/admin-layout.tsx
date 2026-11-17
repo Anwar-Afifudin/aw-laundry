@@ -5,6 +5,7 @@ import {
   ClipboardList,
   LayoutDashboard,
   Menu,
+  MessageCircle,
   MessageSquareWarning,
   Search,
   Settings,
@@ -53,6 +54,7 @@ const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
     to: "/admin/complaints",
     icon: MessageSquareWarning,
   },
+  { label: "Chat", to: "/admin/chat", icon: MessageCircle },
   {
     label: "Laporan",
     to: "/admin/reports",
@@ -69,6 +71,7 @@ const ADMIN_PAGE_TITLES: Record<string, string> = {
   "/admin/customers": "Pelanggan",
   "/admin/payments": "Pembayaran",
   "/admin/complaints": "Komplain",
+  "/admin/chat": "Chat",
   "/admin/reports": "Laporan",
   "/admin/services": "Layanan",
   "/admin/settings": "Pengaturan",

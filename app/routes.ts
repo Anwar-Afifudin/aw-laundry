@@ -35,6 +35,7 @@ export default [
     route("payments/:orderId", "routes/admin/payment-detail.tsx"),
     route("complaints", "routes/admin/complaints.tsx"),
     route("complaints/:complaintId", "routes/admin/complaint-detail.tsx"),
+    route("chat", "routes/admin/chat.tsx"),
     route("services", "routes/admin/services.tsx"),
     route("reports", "routes/admin/reports.tsx"),
     route("settings", "routes/admin/settings.tsx"),
