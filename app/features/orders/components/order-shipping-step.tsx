@@ -42,6 +42,7 @@ import type {
 import type {
   OrderDraftSummary,
   OrderIntakeMethod,
+  OrderPricingSummary,
   OrderReturnMethod,
 } from "~/features/orders/types";
 import { cn } from "~/lib/utils";
@@ -52,6 +53,10 @@ type MethodOption<TMethod extends string> = {
   description: string;
   icon: LucideIcon;
 };
+
+type MethodAvailability<TMethod extends string> = Partial<
+  Record<TMethod, { disabled: boolean; status: string }>
+>;
 
 const intakeMethodOptions = [
   {
@@ -93,12 +98,22 @@ const returnMethodLabels: Record<OrderReturnMethod, string> = {
   CUSTOMER_PICKUP: "Ambil sendiri",
 };
 
+const rupiahFormatter = new Intl.NumberFormat("id-ID", {
+  style: "currency",
+  currency: "IDR",
+});
+
+function formatCourierFee(fee: number) {
+  return fee === 0 ? "Gratis" : rupiahFormatter.format(fee);
+}
+
 function MethodSelector<TMethod extends string>({
   legend,
   helperText,
   name,
   value,
   options,
+  availability,
   onChange,
 }: {
   legend: string;
@@ -106,6 +121,7 @@ function MethodSelector<TMethod extends string>({
   name: string;
   value: TMethod | null;
   options: readonly MethodOption<TMethod>[];
+  availability: MethodAvailability<TMethod>;
   onChange: (method: TMethod) => void;
 }) {
   const helperId = `${name}-help`;
@@ -128,6 +144,8 @@ function MethodSelector<TMethod extends string>({
           const descriptionId = `${inputId}-description`;
           const Icon = option.icon;
           const isSelected = value === option.value;
+          const methodAvailability = availability[option.value];
+          const isDisabled = methodAvailability?.disabled ?? false;
 
           return (
             <div key={option.value} className="relative">
@@ -137,20 +155,26 @@ function MethodSelector<TMethod extends string>({
                 name={name}
                 value={option.value}
                 checked={isSelected}
+                disabled={isDisabled}
                 required
                 aria-labelledby={titleId}
                 aria-describedby={descriptionId}
                 className="peer sr-only focus-visible:outline-none"
-                onChange={() => onChange(option.value)}
+                onChange={() => {
+                  if (!isDisabled) onChange(option.value);
+                }}
               />
               <label
                 htmlFor={inputId}
                 className={cn(
-                  "flex h-full min-h-28 cursor-pointer gap-3 rounded-xl border bg-white p-4 transition-[border-color,box-shadow,background-color]",
+                  "flex h-full min-h-28 gap-3 rounded-xl border bg-white p-4 transition-[border-color,box-shadow,background-color]",
                   "peer-focus-visible:ring-3 peer-focus-visible:ring-blue-600/30",
-                  isSelected
+                  isDisabled
+                    ? "cursor-not-allowed border-slate-200 bg-slate-100 opacity-70"
+                    : "cursor-pointer",
+                  isSelected && !isDisabled
                     ? "border-blue-600 bg-blue-50/60 shadow-sm"
-                    : "border-slate-200 hover:border-blue-300",
+                    : !isDisabled && "border-slate-200 hover:border-blue-300",
                 )}
               >
                 <span
@@ -183,6 +207,12 @@ function MethodSelector<TMethod extends string>({
                     className="mt-1 block text-sm leading-5 text-slate-600"
                   >
                     {option.description}
+                  </span>
+                  <span className={cn(
+                    "mt-2 block text-xs font-semibold",
+                    isDisabled ? "text-slate-600" : "text-blue-700",
+                  )}>
+                    {methodAvailability?.status ?? "Gratis"}
                   </span>
                 </span>
               </label>
@@ -468,12 +498,14 @@ function MethodSummary({
 
 function ShippingSummary({
   summary,
+  pricing,
   intakeMethod,
   returnMethod,
   pickupAddress,
   deliveryAddress,
 }: {
   summary: OrderDraftSummary;
+  pricing: OrderPricingSummary;
   intakeMethod: OrderIntakeMethod | null;
   returnMethod: OrderReturnMethod | null;
   pickupAddress: CustomerAddress | null;
@@ -497,9 +529,16 @@ function ShippingSummary({
                 {item.quantity} × {item.price} = {item.subtotal}
               </SummaryRow>
             ))}
-            <SummaryRow label="Estimasi subtotal" emphasis>
-              {summary.subtotal}
+            <SummaryRow label="Subtotal layanan">
+              {rupiahFormatter.format(pricing.subtotal)}
             </SummaryRow>
+            {intakeMethod === "PICKUP" ? (
+              <SummaryRow label="Biaya pickup">{formatCourierFee(pricing.pickupFee)}</SummaryRow>
+            ) : null}
+            {returnMethod === "DELIVERY" ? (
+              <SummaryRow label="Biaya delivery">{formatCourierFee(pricing.deliveryFee)}</SummaryRow>
+            ) : null}
+            <SummaryRow label="Estimasi total" emphasis>{rupiahFormatter.format(pricing.estimatedTotal)}</SummaryRow>
             <SummaryRow label="Estimasi durasi">{summary.duration}</SummaryRow>
             <MethodSummary
               label="Pengambilan"
@@ -525,6 +564,11 @@ function ShippingSummary({
 export function OrderShippingStep({
   headingRef,
   summary,
+  pricing,
+  pickupEnabled,
+  deliveryEnabled,
+  pickupFee,
+  deliveryFee,
   addressesState,
   intakeMethod,
   pickupAddressId,
@@ -541,6 +585,11 @@ export function OrderShippingStep({
 }: {
   headingRef: RefObject<HTMLHeadingElement | null>;
   summary: OrderDraftSummary;
+  pricing: OrderPricingSummary;
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  pickupFee: number;
+  deliveryFee: number;
   addressesState: CustomerAddressesState;
   intakeMethod: OrderIntakeMethod | null;
   pickupAddressId: string | null;
@@ -625,6 +674,15 @@ export function OrderShippingStep({
               name="intake-method"
               value={intakeMethod}
               options={intakeMethodOptions}
+              availability={{
+                PICKUP: {
+                  disabled: !pickupEnabled,
+                  status: pickupEnabled
+                    ? pickupFee > 0 ? `Biaya pickup ${rupiahFormatter.format(pickupFee)}` : "Gratis"
+                    : "Tidak tersedia",
+                },
+                DROPOFF: { disabled: false, status: "Gratis" },
+              }}
               onChange={onIntakeMethodChange}
             />
 
@@ -636,6 +694,15 @@ export function OrderShippingStep({
               name="return-method"
               value={returnMethod}
               options={returnMethodOptions}
+              availability={{
+                DELIVERY: {
+                  disabled: !deliveryEnabled,
+                  status: deliveryEnabled
+                    ? deliveryFee > 0 ? `Biaya delivery ${rupiahFormatter.format(deliveryFee)}` : "Gratis"
+                    : "Tidak tersedia",
+                },
+                CUSTOMER_PICKUP: { disabled: false, status: "Gratis" },
+              }}
               onChange={onReturnMethodChange}
             />
 
@@ -754,6 +821,7 @@ export function OrderShippingStep({
 
         <ShippingSummary
           summary={summary}
+          pricing={pricing}
           intakeMethod={intakeMethod}
           returnMethod={returnMethod}
           pickupAddress={pickupAddress}

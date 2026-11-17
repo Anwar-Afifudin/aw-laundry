@@ -34,6 +34,7 @@ import type {
   CreatedCustomerOrder,
   OrderDraftSummary,
   OrderIntakeMethod,
+  OrderPricingSummary,
   OrderReturnMethod,
 } from "~/features/orders/types";
 
@@ -51,6 +52,10 @@ const rupiahFormatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
   currency: "IDR",
 });
+
+function formatCourierFee(fee: number) {
+  return fee === 0 ? "Gratis" : rupiahFormatter.format(fee);
+}
 
 const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
   dateStyle: "long",
@@ -166,6 +171,7 @@ function MethodReview({
 export function OrderReviewStep({
   headingRef,
   summary,
+  pricing,
   notes,
   intakeMethod,
   returnMethod,
@@ -178,6 +184,7 @@ export function OrderReviewStep({
 }: {
   headingRef: RefObject<HTMLHeadingElement | null>;
   summary: OrderDraftSummary;
+  pricing: OrderPricingSummary;
   notes: string;
   intakeMethod: OrderIntakeMethod;
   returnMethod: OrderReturnMethod;
@@ -231,7 +238,14 @@ export function OrderReviewStep({
                 </div>
               ))}
               <dl className="grid gap-3 sm:grid-cols-2">
-                <ReviewDetail label="Subtotal layanan" value={summary.subtotal} emphasis />
+                <ReviewDetail label="Subtotal layanan" value={rupiahFormatter.format(pricing.subtotal)} />
+                {intakeMethod === "PICKUP" ? (
+                  <ReviewDetail label="Biaya pickup" value={formatCourierFee(pricing.pickupFee)} />
+                ) : null}
+                {returnMethod === "DELIVERY" ? (
+                  <ReviewDetail label="Biaya delivery" value={formatCourierFee(pricing.deliveryFee)} />
+                ) : null}
+                <ReviewDetail label="Estimasi total" value={rupiahFormatter.format(pricing.estimatedTotal)} emphasis />
                 <ReviewDetail label="Estimasi durasi" value={summary.duration} />
               </dl>
             </div>
@@ -288,7 +302,7 @@ export function OrderReviewStep({
                 Estimasi total
               </p>
               <p className="mt-1 text-2xl font-bold text-blue-800">
-                {summary.subtotal}
+                {rupiahFormatter.format(pricing.estimatedTotal)}
               </p>
             </div>
 
