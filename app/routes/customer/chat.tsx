@@ -114,9 +114,6 @@ export default function CustomerChatPage() {
           };
         });
       },
-      onStatusChange: (status, error) => {
-        console.log("[chat realtime]", status, error);
-      },
     });
   }, [conversationId]);
 
