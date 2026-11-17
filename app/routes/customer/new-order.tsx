@@ -50,8 +50,11 @@ import type {
   CreatedCustomerOrder,
   OrderDraftSummary,
   OrderIntakeMethod,
+  OrderPricingSummary,
   OrderReturnMethod,
 } from "~/features/orders/types";
+import { getBusinessSettings } from "~/features/settings/queries/get-business-settings";
+import type { BusinessSettings } from "~/features/settings/types";
 import { getActiveServices } from "~/features/services/queries/get-active-services";
 import type {
   ActiveService,
@@ -62,6 +65,11 @@ import { cn } from "~/lib/utils";
 type ServicesState =
   | { status: "loading" }
   | { status: "ready"; services: ActiveService[] }
+  | { status: "error" };
+
+type BusinessSettingsState =
+  | { status: "loading" }
+  | { status: "ready"; settings: BusinessSettings }
   | { status: "error" };
 
 type OrderSubmissionState =
@@ -456,7 +464,13 @@ function ServiceSelectionSkeleton() {
   );
 }
 
-function ServicesErrorState({ onRetry }: { onRetry: () => void }) {
+function ServicesErrorState({
+  onRetry,
+  settingsFailed = false,
+}: {
+  onRetry: () => void;
+  settingsFailed?: boolean;
+}) {
   return (
     <Card role="alert" className="shadow-sm">
       <CardContent className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
@@ -464,11 +478,12 @@ function ServicesErrorState({ onRetry }: { onRetry: () => void }) {
           <CircleAlertIcon aria-hidden="true" className="size-6" />
         </span>
         <h2 className="font-heading text-lg font-semibold text-slate-900">
-          Layanan belum dapat dimuat
+          {settingsFailed ? "Pengaturan operasional belum dapat dimuat" : "Layanan belum dapat dimuat"}
         </h2>
         <p className="mt-2 max-w-md text-sm leading-6 text-slate-600">
-          Terjadi gangguan saat memuat daftar layanan. Periksa koneksi Anda,
-          lalu coba lagi.
+          {settingsFailed
+            ? "Pickup, delivery, biaya, dan minimum order belum dapat ditentukan. Periksa koneksi Anda, lalu coba lagi."
+            : "Terjadi gangguan saat memuat daftar layanan. Periksa koneksi Anda, lalu coba lagi."}
         </p>
         <Button type="button" size="lg" className="mt-6 h-11" onClick={onRetry}>
           <RefreshCwIcon aria-hidden="true" />
@@ -582,6 +597,7 @@ function OrderDetailsStep({
   onNotesChange,
   onBack,
   onContinue,
+  minimumOrder,
 }: {
   services: QuantityService[];
   estimatedQuantities: Record<string, string>;
@@ -591,6 +607,7 @@ function OrderDetailsStep({
   onNotesChange: (notes: string) => void;
   onBack: () => void;
   onContinue: () => void;
+  minimumOrder: number;
 }) {
   const [touchedServices, setTouchedServices] = useState<Set<string>>(new Set());
   const validations = services.map((service) => ({
@@ -599,9 +616,17 @@ function OrderDetailsStep({
   }));
   const notesError =
     notes.length > 500 ? "Catatan laundry maksimal 500 karakter." : null;
+  const total = validations.every(({ validation }) => validation.value !== null)
+    ? validations.reduce(
+        (sum, { service, validation }) => sum + service.price * validation.value!,
+        0,
+      )
+    : null;
   const isFormValid =
     validations.every(({ validation }) => validation.value !== null) &&
-    notesError === null;
+    notesError === null &&
+    total !== null &&
+    total >= minimumOrder;
   const notesHelpId = "laundry-notes-help";
   const notesErrorId = "laundry-notes-error";
 
@@ -636,6 +661,18 @@ function OrderDetailsStep({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {minimumOrder > 0 ? (
+            <div className={cn(
+              "rounded-xl border p-4 text-sm leading-6",
+              total !== null && total < minimumOrder
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-blue-200 bg-blue-50 text-blue-900",
+            )}>
+              {total !== null && total < minimumOrder
+                ? `Minimum order adalah ${formatPrice(minimumOrder)}. Tambahkan layanan atau jumlah laundry sebelum melanjutkan.`
+                : `Minimum order ${formatPrice(minimumOrder)}.`}
+            </div>
+          ) : null}
           <div className="space-y-4">
             {validations.map(({ service, validation }) => { const config = quantityFieldConfigs[service.billing_unit]; const inputId = `estimated-quantity-${service.id}`; const showError = validation.error !== null && (touchedServices.has(service.id) || Boolean(estimatedQuantities[service.id])); return <div key={service.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"><p className="font-semibold text-slate-900">{service.name}</p><p className="mt-1 text-sm text-slate-500">{formatPrice(service.price)} {priceUnitLabels[service.billing_unit]}</p><Label htmlFor={inputId} className="mt-4">{config.label}<span className="text-red-600">*</span></Label><div className="relative mt-2"><Input id={inputId} type="number" min={config.min} step={config.step} inputMode={config.inputMode} placeholder={config.placeholder} value={estimatedQuantities[service.id] ?? ""} required aria-invalid={showError || undefined} className="h-11 pr-16" onChange={(event) => onEstimatedQuantityChange(service.id, event.target.value)} onBlur={() => setTouchedServices((current) => new Set(current).add(service.id))} /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500">{config.unit}</span></div><p className="mt-2 text-xs text-slate-500">{config.helpText}</p>{showError && <p role="alert" className="mt-2 text-sm font-medium text-red-600">{validation.error}</p>}</div>; })}
           </div>
@@ -717,6 +754,8 @@ export default function NewOrderPage() {
   const [servicesState, setServicesState] = useState<ServicesState>({
     status: "loading",
   });
+  const [businessSettingsState, setBusinessSettingsState] =
+    useState<BusinessSettingsState>({ status: "loading" });
   const [retryKey, setRetryKey] = useState(0);
   const [addressesState, setAddressesState] = useState<CustomerAddressesState>({
     status: "idle",
@@ -747,6 +786,7 @@ export default function NewOrderPage() {
     let isActive = true;
 
     setServicesState({ status: "loading" });
+    setBusinessSettingsState({ status: "loading" });
     setCurrentStep(1);
     setSelectedServiceIds([]);
     setEstimatedQuantities({});
@@ -774,10 +814,35 @@ export default function NewOrderPage() {
         }
       });
 
+    void getBusinessSettings()
+      .then((settings) => {
+        if (isActive) {
+          setBusinessSettingsState({ status: "ready", settings });
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setBusinessSettingsState({ status: "error" });
+        }
+      });
+
     return () => {
       isActive = false;
     };
   }, [retryKey]);
+
+  useEffect(() => {
+    if (businessSettingsState.status !== "ready") return;
+
+    if (!businessSettingsState.settings.pickup_enabled) {
+      setIntakeMethod((current) => current === "PICKUP" ? null : current);
+      setPickupAddressId(null);
+    }
+    if (!businessSettingsState.settings.delivery_enabled) {
+      setReturnMethod((current) => current === "DELIVERY" ? null : current);
+      setDeliveryAddressId(null);
+    }
+  }, [businessSettingsState]);
 
   useEffect(() => {
     if (currentStep !== 3 || addressesLoadedRef.current) {
@@ -839,6 +904,20 @@ export default function NewOrderPage() {
   const orderDraftSummary: OrderDraftSummary | null = draftIsValid && draftSubtotal !== null
     ? { items: draftItems.map(({ service, quantity, subtotal }) => ({ service: service.name, price: `${formatPrice(service.price)} ${priceUnitLabels[service.billing_unit]}`, quantity: formatQuantity(quantity!, quantityFieldConfigs[service.billing_unit].unit), subtotal: formatPrice(subtotal!) })), subtotal: formatPrice(draftSubtotal), duration: formatDuration(longestDuration) }
     : null;
+  const businessSettings = businessSettingsState.status === "ready"
+    ? businessSettingsState.settings
+    : null;
+  const pricing: OrderPricingSummary | null = draftSubtotal !== null && businessSettings
+    ? {
+        subtotal: draftSubtotal,
+        pickupFee: intakeMethod === "PICKUP" ? businessSettings.pickup_fee : 0,
+        deliveryFee: returnMethod === "DELIVERY" ? businessSettings.delivery_fee : 0,
+        estimatedTotal:
+          draftSubtotal
+          + (intakeMethod === "PICKUP" ? businessSettings.pickup_fee : 0)
+          + (returnMethod === "DELIVERY" ? businessSettings.delivery_fee : 0),
+      }
+    : null;
   const addresses =
     addressesState.status === "ready" ? addressesState.addresses : [];
   const selectedPickupAddress =
@@ -857,6 +936,7 @@ export default function NewOrderPage() {
   }
 
   function handleIntakeMethodChange(method: OrderIntakeMethod) {
+    if (method === "PICKUP" && !businessSettings?.pickup_enabled) return;
     setIntakeMethod(method);
 
     if (method === "DROPOFF") {
@@ -865,6 +945,7 @@ export default function NewOrderPage() {
   }
 
   function handleReturnMethodChange(method: OrderReturnMethod) {
+    if (method === "DELIVERY" && !businessSettings?.delivery_enabled) return;
     setReturnMethod(method);
 
     if (method === "CUSTOMER_PICKUP") {
@@ -928,6 +1009,33 @@ export default function NewOrderPage() {
       return;
     }
 
+    if (!businessSettings) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Pengaturan belum tersedia",
+        message: "Pengaturan operasional belum dapat dimuat. Silakan coba lagi.",
+      });
+      return;
+    }
+
+    if (draftSubtotal === null) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Periksa kembali pesanan",
+        message: "Subtotal pesanan belum dapat dihitung. Periksa kembali layanan dan jumlah laundry.",
+      });
+      return;
+    }
+
+    if (draftSubtotal < businessSettings.minimum_order) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Minimum order belum terpenuhi",
+        message: `Minimum order adalah ${formatPrice(businessSettings.minimum_order)}. Tambahkan layanan atau jumlah laundry sebelum melanjutkan.`,
+      });
+      return;
+    }
+
     const invalidItem = draftItems.find((item) => item.quantity === null || item.subtotal === null || !Number.isFinite(item.subtotal));
     if (invalidItem) {
       setOrderSubmissionState({
@@ -952,6 +1060,24 @@ export default function NewOrderPage() {
         status: "error",
         title: "Periksa kembali pesanan",
         message: "Metode pengambilan dan pengembalian wajib dipilih.",
+      });
+      return;
+    }
+
+    if (intakeMethod === "PICKUP" && !businessSettings.pickup_enabled) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Pickup tidak tersedia",
+        message: "Layanan pickup sedang tidak tersedia. Pilih antar sendiri untuk melanjutkan.",
+      });
+      return;
+    }
+
+    if (returnMethod === "DELIVERY" && !businessSettings.delivery_enabled) {
+      setOrderSubmissionState({
+        status: "error",
+        title: "Delivery tidak tersedia",
+        message: "Layanan delivery sedang tidak tersedia. Pilih ambil sendiri untuk melanjutkan.",
       });
       return;
     }
@@ -1036,15 +1162,16 @@ export default function NewOrderPage() {
 
       <OrderStepIndicator currentStep={currentStep} />
 
-      {servicesState.status === "loading" && <ServiceSelectionSkeleton />}
+      {(servicesState.status === "loading" || businessSettingsState.status === "loading") && <ServiceSelectionSkeleton />}
 
-      {servicesState.status === "error" && (
+      {(servicesState.status === "error" || businessSettingsState.status === "error") && (
         <ServicesErrorState
+          settingsFailed={businessSettingsState.status === "error"}
           onRetry={() => setRetryKey((currentKey) => currentKey + 1)}
         />
       )}
 
-      {servicesState.status === "ready" && services.length === 0 && (
+      {servicesState.status === "ready" && businessSettings && services.length === 0 && (
         <PlaceholderCard
           icon={PackageOpenIcon}
           title="Belum ada layanan yang tersedia"
@@ -1052,7 +1179,7 @@ export default function NewOrderPage() {
         />
       )}
 
-      {servicesState.status === "ready" &&
+      {servicesState.status === "ready" && businessSettings &&
         services.length > 0 &&
         currentStep === 1 && (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
@@ -1097,7 +1224,7 @@ export default function NewOrderPage() {
         </div>
       )}
 
-      {servicesState.status === "ready" &&
+      {servicesState.status === "ready" && businessSettings &&
         currentStep === 2 &&
         selectedServices.length > 0 && (
           <OrderDetailsStep
@@ -1109,15 +1236,21 @@ export default function NewOrderPage() {
             onNotesChange={setNotes}
             onBack={() => setCurrentStep(1)}
             onContinue={() => setCurrentStep(3)}
+            minimumOrder={businessSettings.minimum_order}
           />
         )}
 
-      {servicesState.status === "ready" &&
+      {servicesState.status === "ready" && businessSettings &&
         currentStep === 3 &&
-        orderDraftSummary && (
+        orderDraftSummary && pricing && (
           <OrderShippingStep
             headingRef={stepHeadingRef}
             summary={orderDraftSummary}
+            pricing={pricing}
+            pickupEnabled={businessSettings.pickup_enabled}
+            deliveryEnabled={businessSettings.delivery_enabled}
+            pickupFee={businessSettings.pickup_fee}
+            deliveryFee={businessSettings.delivery_fee}
             addressesState={addressesState}
             intakeMethod={intakeMethod}
             pickupAddressId={pickupAddressId}
@@ -1137,14 +1270,16 @@ export default function NewOrderPage() {
           />
         )}
 
-      {servicesState.status === "ready" &&
+      {servicesState.status === "ready" && businessSettings &&
         currentStep === 4 &&
         orderDraftSummary &&
+        pricing &&
         intakeMethod &&
         returnMethod && (
           <OrderReviewStep
             headingRef={stepHeadingRef}
             summary={orderDraftSummary}
+            pricing={pricing}
             notes={notes}
             intakeMethod={intakeMethod}
             returnMethod={returnMethod}

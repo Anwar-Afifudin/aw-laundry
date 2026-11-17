@@ -73,6 +73,34 @@ function mapRpcError(error: { code?: string; message: string }) {
     );
   }
 
+  if (errorMessage.includes("PICKUP_UNAVAILABLE")) {
+    return new CreateCustomerOrderError(
+      "validation",
+      "Layanan pickup sedang tidak tersedia. Pilih antar sendiri untuk melanjutkan.",
+    );
+  }
+
+  if (errorMessage.includes("DELIVERY_UNAVAILABLE")) {
+    return new CreateCustomerOrderError(
+      "validation",
+      "Layanan delivery sedang tidak tersedia. Pilih ambil sendiri untuk melanjutkan.",
+    );
+  }
+
+  if (errorMessage.includes("MINIMUM_ORDER_NOT_MET")) {
+    return new CreateCustomerOrderError(
+      "validation",
+      "Subtotal pesanan belum memenuhi minimum order yang berlaku. Periksa kembali layanan dan jumlah laundry Anda.",
+    );
+  }
+
+  if (errorMessage.includes("BUSINESS_SETTINGS_UNAVAILABLE")) {
+    return new CreateCustomerOrderError(
+      "server",
+      "Pengaturan operasional sedang tidak tersedia. Silakan coba lagi.",
+    );
+  }
+
   if (
     errorMessage.includes("INVALID_ORDER_INPUT") ||
     errorMessage.includes("INVALID_ORDER_ITEMS") ||

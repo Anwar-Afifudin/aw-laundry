@@ -29,6 +29,13 @@ export type OrderDraftSummary = {
   duration: string;
 };
 
+export type OrderPricingSummary = {
+  subtotal: number;
+  pickupFee: number;
+  deliveryFee: number;
+  estimatedTotal: number;
+};
+
 export type CreateCustomerOrderInput = {
   orderId: string;
   items: Array<{ serviceId: string; estimatedQuantity: number }>;
