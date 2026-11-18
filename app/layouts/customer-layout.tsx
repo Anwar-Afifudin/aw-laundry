@@ -5,7 +5,6 @@ import {
   MessageCircleIcon,
   MessageSquareWarningIcon,
   PlusIcon,
-  UserRoundIcon,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router";
 
@@ -44,7 +43,7 @@ const mobileNavigation: CustomerNavigationItem[] = [
     featured: true,
   },
   { label: "Komplain", to: "/app/complaints", icon: MessageSquareWarningIcon },
-  { label: "Profile", to: "/app/profile", icon: UserRoundIcon },
+  { label: "Chat", to: "/app/chat", icon: MessageCircleIcon },
 ];
 
 function DesktopNavigation() {
