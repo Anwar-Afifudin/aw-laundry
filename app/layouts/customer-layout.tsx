@@ -11,6 +11,7 @@ import { NavLink, Outlet } from "react-router";
 import { BrandLogo } from "~/components/shared/brand-logo";
 import { AccountMenu } from "~/features/auth/components/account-menu";
 import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
+import { IdleSessionManager } from "~/features/auth/components/idle-session-manager";
 import { cn } from "~/lib/utils";
 
 type CustomerNavigationItem = {
@@ -170,7 +171,9 @@ function CustomerApplicationLayout() {
 export default function CustomerLayout() {
   return (
     <AuthorizationGuard requiredRole="CUSTOMER">
-      <CustomerApplicationLayout />
+      <IdleSessionManager role="CUSTOMER">
+        <CustomerApplicationLayout />
+      </IdleSessionManager>
     </AuthorizationGuard>
   );
 }
