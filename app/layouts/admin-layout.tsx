@@ -29,6 +29,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { AccountMenu } from "~/features/auth/components/account-menu";
 import { AuthorizationGuard } from "~/features/auth/components/authorization-guard";
+import { IdleSessionManager } from "~/features/auth/components/idle-session-manager";
 import { cn } from "~/lib/utils";
 
 type AdminNavItem = {
@@ -228,7 +229,9 @@ function AdminApplicationLayout() {
 export default function AdminLayout() {
   return (
     <AuthorizationGuard requiredRole="ADMIN">
-      <AdminApplicationLayout />
+      <IdleSessionManager role="ADMIN">
+        <AdminApplicationLayout />
+      </IdleSessionManager>
     </AuthorizationGuard>
   );
 }
